@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Cyberduck connection profile for Ceph RadosGW with STS and Keycloak OIDC
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Protocol</key>
+    <string>s3</string>
+    <key>Vendor</key>
+    <string>radosgw-sts-keycloak</string>
+    <key>Description</key>
+    <string>RadosGW S3 STS AssumeRoleWithWebIdentity with Keycloak OIDC</string>
+
+    <key>Default Hostname</key>
+    <!-- Change me -->
+    <string>storage.example.com</string>
+    <key>Hostname Configurable</key>
+    <true/>
+
+    <key>Default Port</key>
+    <string>443</string>
+    <key>Port Configurable</key>
+    <true/>
+
+    <key>Username Configurable</key>
+    <false/>
+
+    <key>Password Configurable</key>
+    <false/>
+
+    <key>Authorization</key>
+    <string>AuthorizationCode</string>
+
+    <key>OAuth Authorization Url</key>
+    <!-- Change me -->
+    <string>https://keycloak.example.com/realms/myrealm/protocol/openid-connect/auth</string>
+    <key>OAuth Token Url</key>
+    <!-- Change me -->
+    <string>https://keycloak.example.com/realms/myrealm/protocol/openid-connect/token</string>
+    <key>OAuth Client ID</key>
+    <!-- Change me -->
+    <string>radosgw-public</string>
+    <!-- No client secret for public clients -->
+    <key>OAuth Client Secret</key>
+    <false/>
+    <key>OAuth Redirect Url</key>
+    <!-- Callback URL for Keycloak client -->
+    <!-- <string>x-cyberduck-action:oauth</string> -->
+    <string>${oauth.application.identifier}:oauth</string>
+    <!-- PKCE is required for public clients -->
+    <key>OAuth PKCE</key>
+    <true/>
+
+    <key>Scopes</key>
+    <!-- Change me -->
+    <array>
+        <string>openid</string>
+        <string>offline_access</string>
+    </array>
+
+    <key>STS Endpoint</key>
+    <!-- Change me -->
+    <string>https://storage.example.com</string>
+
+    <key>Properties</key>
+    <array>
+        <!-- <string>s3.assumerole.rolearn=arn:aws:iam:::role/examples/KeycloakExample</string> -->
+        <!-- The prompt is displayed when connecting and saved in the bookmark as a property. -->
+        <string>s3.assumerole.rolearn=</string>
+        <string>s3.assumerole.durationseconds=3600</string>
+        <string>s3.assumerole.rolesessionname=cyberduck-session</string>
+    </array>
+</dict>
+</plist>
