@@ -1,0 +1,7 @@
+# Client IDs for OIDC provider
+
+# Keycloak default audiences
+account
+
+# Custom client audience
+radosgw-public

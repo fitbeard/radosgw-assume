@@ -209,6 +209,12 @@ radosgw_ssl_verify     = false
 role_arn               = arn:aws:iam:::role/examples/KeycloakExample
 ```
 
+## RadosGW and OIDC Provider Setup
+
+- **[RadosGW STS Configuration](docs/radosgw-setup.md)** - How to configure RadosGW for OIDC authentication
+- **[Keycloak](docs/keycloak-setup.md)** - Keycloak configuration
+- **[GitHub Actions](docs/github-actions.md)** - Using GitHub's OIDC provider
+
 ### Environment Variables
 
 For configuration-free operation:
@@ -237,8 +243,9 @@ radosgw_oidc_client_id = storage-access
 radosgw_role_arn = arn:aws:iam:::role/DeveloperAccess
 EOF
 
+radosgw-assume
+
 # Get credentials and start working
-eval $(radosgw-assume myproject)
 aws s3 ls
 ```
 

@@ -1,0 +1,7 @@
+# Client IDs for OIDC provider
+
+# GitHub default audience for org/user
+https://github.com/fitbeard
+
+# Custom audiences
+custom.audience
