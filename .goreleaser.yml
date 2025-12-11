@@ -1,0 +1,36 @@
+---
+version: 2
+
+project_name: radosgw-assume
+
+builds:
+  - id: radosgw-assume
+    main: ./cmd/radosgw-assume
+    env:
+      - CGO_ENABLED=0
+    binary: radosgw-assume
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -X github.com/fitbeard/radosgw-assume/internal/version.Version={{ .Version }}
+      - -X github.com/fitbeard/radosgw-assume/internal/version.GitCommit={{ .ShortCommit }}
+      - -X github.com/fitbeard/radosgw-assume/internal/version.BuildDate={{ .Date }}
+
+archives:
+  - id: radosgw-assume
+    ids:
+      - radosgw-assume
+    name_template: radosgw-assume-v{{ .Version }}-{{ .Os }}-{{ .Arch }}
+    formats:
+      - tar.gz
+
+# Managed by release-please
+changelog:
+  disable: true
+
+checksum:
+  name_template: radosgw-assume-v{{ .Version }}-checksums.txt
