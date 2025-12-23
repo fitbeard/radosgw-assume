@@ -127,7 +127,7 @@ The JWKS (JSON Web Key Set) certificates in Kubernetes don't have x5t (X.509 Cer
 
 ```bash
 echo |
-openssl s_client -servername kind.bimbam.dev -connect kind.bimbam.dev:6443 2>/dev/null |
+openssl s_client -servername kind.example.com -connect kind.example.com:6443 2>/dev/null |
 openssl x509 -fingerprint -sha1 -noout |
 cut -d'=' -f2 |
 tr -d ':'
