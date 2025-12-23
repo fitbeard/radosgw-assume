@@ -1,0 +1,22 @@
+---
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 6443 # Kubernetes API
+        hostPort: 6443
+        protocol: TCP
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          certSANs:
+          - "localhost"
+          - "127.0.0.1"
+          - "0.0.0.0"
+          - "kind.example.com"
+          extraArgs:
+            service-account-issuer: "https://kind.example.com:6443"
+            service-account-jwks-uri: "https://kind.example.com:6443/openid/v1/jwks"
+            api-audiences: "https://kubernetes.default.svc,https://kind.example.com:6443,custom.audience"

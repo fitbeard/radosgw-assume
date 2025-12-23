@@ -41,7 +41,7 @@ cat scripts/client_ids_github.txt
 
 ### Create OIDC provider
 
-Fo next scripts execution at least the "oidc-provider" and "roles" capabilities are required:
+For next scripts execution at least the "oidc-provider" and "roles" capabilities are required:
 
 ```bash
 radosgw-admin caps add --uid="YOUR-ADMIN-USER" --caps="oidc-provider=*"

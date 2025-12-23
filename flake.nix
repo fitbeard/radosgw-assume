@@ -25,6 +25,8 @@
             go_1_25
             golangci-lint
             git
+            kind
+            kubectl
           ];
         };
       }
