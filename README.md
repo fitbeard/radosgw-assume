@@ -214,6 +214,7 @@ role_arn               = arn:aws:iam:::role/examples/KeycloakExample
 - **[RadosGW STS Configuration](docs/radosgw-setup.md)** - How to configure RadosGW for OIDC authentication
 - **[Keycloak](docs/keycloak-setup.md)** - Keycloak configuration
 - **[GitHub Actions](docs/github-actions.md)** - Using GitHub's OIDC provider
+- **[Kubernetes](docs/kubernetes-setup.md)** - Kubernetes configuration
 
 ### Environment Variables
 
