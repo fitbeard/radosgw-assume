@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.0](https://github.com/fitbeard/radosgw-assume/compare/v1.0.0...v1.1.0) (2026-01-27)
+
+
+### Features
+
+* add kubernetes examples ([483afe5](https://github.com/fitbeard/radosgw-assume/commit/483afe5249db0e00b5a15b02094ae60d1abfdf43))
+* add kubernetes examples ([211b6db](https://github.com/fitbeard/radosgw-assume/commit/211b6dbc2391542750647f39fbd65e413b11ddc4))
+* improve error handling messages ([#13](https://github.com/fitbeard/radosgw-assume/issues/13)) ([1bc42b5](https://github.com/fitbeard/radosgw-assume/commit/1bc42b52c63682494e4907af06a3077e2222bbee))
+
+
+### Bug Fixes
+
+* remove duplicated code ([#12](https://github.com/fitbeard/radosgw-assume/issues/12)) ([daf134e](https://github.com/fitbeard/radosgw-assume/commit/daf134e272d9019c051d54033a21c936e41993a6))
+
 ## 1.0.0 (2025-12-11)
 
 
