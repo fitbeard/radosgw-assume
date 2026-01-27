@@ -88,7 +88,10 @@ func GetProfileConfig(profileName string, awsConfig *ini.File) (*ProfileConfig, 
 		}
 	} else {
 		availableProfiles := GetRadosGWProfiles(awsConfig)
-		return nil, fmt.Errorf("profile '%s' not found in ~/.aws/config. Available profiles: %v", profileName, availableProfiles)
+		if len(availableProfiles) == 0 {
+			return nil, fmt.Errorf("profile '%s' not found. No RadosGW profiles configured in ~/.aws/config", profileName)
+		}
+		return nil, fmt.Errorf("profile '%s' not found. Available RadosGW profiles: %s", profileName, strings.Join(availableProfiles, ", "))
 	}
 
 	return profileConfig, nil

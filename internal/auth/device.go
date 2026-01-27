@@ -112,7 +112,7 @@ func AuthenticateDeviceFlow(providerURL, clientID, scope string, sslVerify bool,
 				continue
 			default:
 				progress.StopQuiet()
-				return "", fmt.Errorf("authentication failed: %s - %s", tokenResponse.Error, tokenResponse.ErrorDesc)
+				return "", FormatOIDCError(tokenResponse.Error, tokenResponse.ErrorDesc, providerURL)
 			}
 		}
 	}
