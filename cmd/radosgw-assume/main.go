@@ -85,38 +85,24 @@ func main() {
 		if verboseMode {
 			fmt.Fprintf(os.Stderr, "# Using configuration from environment variables\n")
 		}
-	} else if profileName == "" {
-		// Interactive mode - show profile selector
-		awsConfig, err = config.LoadAWSConfig()
-		if err != nil {
-			if verboseMode {
-				fmt.Fprintf(os.Stderr, "# Failed to load config file: %v\n", err)
-			}
-			// Create empty config if file doesn't exist
-			awsConfig = ini.Empty()
-		}
-
-		profiles := config.GetRadosGWProfiles(awsConfig)
-		if len(profiles) == 0 {
-			fmt.Fprintf(os.Stderr, "No RadosGW profiles found in AWS config file\n")
-			os.Exit(1)
-		}
-
-		selectedProfile, err := ui.SelectProfileInteractively(profiles)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-		profileName = selectedProfile
 	} else {
-		// Profile specified via command line - load config
-		awsConfig, err = config.LoadAWSConfig()
-		if err != nil {
-			if verboseMode {
-				fmt.Fprintf(os.Stderr, "# Failed to load config file: %v\n", err)
+		// Load AWS config (used for both interactive and command-line modes)
+		awsConfig = config.LoadAWSConfigOrEmpty(verboseMode)
+
+		if profileName == "" {
+			// Interactive mode - show profile selector
+			profiles := config.GetRadosGWProfiles(awsConfig)
+			if len(profiles) == 0 {
+				fmt.Fprintf(os.Stderr, "No RadosGW profiles found in AWS config file\n")
+				os.Exit(1)
 			}
-			// Create empty config if file doesn't exist
-			awsConfig = ini.Empty()
+
+			selectedProfile, err := ui.SelectProfileInteractively(profiles)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			profileName = selectedProfile
 		}
 	}
 

@@ -21,6 +21,32 @@ func TestLoadAWSConfig(t *testing.T) {
 	}
 }
 
+func TestLoadAWSConfigOrEmpty(t *testing.T) {
+	// Test that LoadAWSConfigOrEmpty never returns nil
+	tests := []struct {
+		name        string
+		verboseMode bool
+	}{
+		{
+			name:        "verbose mode",
+			verboseMode: true,
+		},
+		{
+			name:        "quiet mode",
+			verboseMode: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := LoadAWSConfigOrEmpty(tt.verboseMode)
+			if config == nil {
+				t.Error("LoadAWSConfigOrEmpty() returned nil, expected non-nil config")
+			}
+		})
+	}
+}
+
 func TestGetRadosGWProfiles(t *testing.T) {
 	// Create test config data
 	configContent := `[profile test-profile]
