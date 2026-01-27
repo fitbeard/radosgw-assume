@@ -216,7 +216,8 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope string, sslVerify bool
 	_ = server.Shutdown(context.Background())
 
 	if callbackError != "" {
-		return "", fmt.Errorf("authentication failed: %s", callbackError)
+		// callbackError contains the error code, error_description was shown in browser
+		return "", FormatOIDCError(callbackError, "", providerURL)
 	}
 
 	if authCode == "" {
@@ -263,7 +264,7 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope string, sslVerify bool
 	}
 
 	if tokenResponse.Error != "" {
-		return "", fmt.Errorf("token exchange failed: %s - %s", tokenResponse.Error, tokenResponse.ErrorDesc)
+		return "", FormatOIDCError(tokenResponse.Error, tokenResponse.ErrorDesc, providerURL)
 	}
 
 	if tokenResponse.AccessToken == "" {

@@ -172,3 +172,49 @@ func isValidSessionNameChar(r rune) bool {
 		(r >= '0' && r <= '9') ||
 		r == '-' || r == '_' || r == '.'
 }
+
+func TestFormatSTSError(t *testing.T) {
+	endpointURL := "https://s3.example.com"
+	roleArn := "arn:aws:iam:::role/TestRole"
+
+	tests := []struct {
+		name        string
+		err         error
+		wantContain string
+	}{
+		{
+			name:        "connection refused",
+			err:         fmt.Errorf("dial tcp: connection refused"),
+			wantContain: "connection refused",
+		},
+		{
+			name:        "no such host",
+			err:         fmt.Errorf("dial tcp: lookup bad.host: no such host"),
+			wantContain: "unknown host",
+		},
+		{
+			name:        "certificate error",
+			err:         fmt.Errorf("x509: certificate signed by unknown authority"),
+			wantContain: "TLS certificate error",
+		},
+		{
+			name:        "timeout error",
+			err:         fmt.Errorf("context deadline exceeded"),
+			wantContain: "connection timeout",
+		},
+		{
+			name:        "generic error",
+			err:         fmt.Errorf("some unknown error"),
+			wantContain: roleArn,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatSTSError(tt.err, endpointURL, roleArn)
+			if !strings.Contains(result.Error(), tt.wantContain) {
+				t.Errorf("formatSTSError() = %v, want to contain %v", result, tt.wantContain)
+			}
+		})
+	}
+}

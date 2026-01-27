@@ -3,12 +3,15 @@ package sts
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/aws/smithy-go"
 
 	"github.com/fitbeard/radosgw-assume/internal/config"
 )
@@ -44,7 +47,7 @@ func AssumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, sessionNa
 
 	result, err := stsClient.AssumeRoleWithWebIdentity(context.TODO(), input)
 	if err != nil {
-		return nil, err
+		return nil, formatSTSError(err, endpointURL, roleArn)
 	}
 
 	// Format expiration time
@@ -58,4 +61,55 @@ func AssumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, sessionNa
 		ProfileName:     sessionName,
 		EndpointURL:     endpointURL,
 	}, nil
+}
+
+// formatSTSError converts AWS SDK errors into user-friendly error messages
+func formatSTSError(err error, endpointURL, roleArn string) error {
+	// Check for API errors from AWS SDK
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		code := apiErr.ErrorCode()
+		message := apiErr.ErrorMessage()
+
+		switch code {
+		case "AccessDenied":
+			return fmt.Errorf("access denied: cannot assume role '%s' - "+
+				"common causes: OIDC token expired, token claims don't match role trust policy, "+
+				"or identity provider not authorized for this role", roleArn)
+		case "InvalidIdentityToken":
+			return fmt.Errorf("invalid identity token: the OIDC token is malformed or cannot be validated - "+
+				"ensure the token is properly formatted and the OIDC provider is correctly configured in RadosGW")
+		case "PackedPolicyTooLarge":
+			return fmt.Errorf("policy too large: the session policy exceeds the maximum allowed size")
+		case "MalformedPolicyDocument":
+			return fmt.Errorf("malformed policy: the role '%s' has an invalid trust policy document", roleArn)
+		case "IDPCommunicationError":
+			return fmt.Errorf("IDP communication error: RadosGW could not communicate with the identity provider - "+
+				"check network connectivity and OIDC provider URL configuration")
+		default:
+			// Include both code and message for unknown errors
+			if message != "" {
+				return fmt.Errorf("STS error [%s]: %s", code, message)
+			}
+			return fmt.Errorf("STS error [%s]: assume role failed for '%s'", code, roleArn)
+		}
+	}
+
+	// Check for connection/network errors
+	errStr := err.Error()
+	if strings.Contains(errStr, "connection refused") {
+		return fmt.Errorf("connection refused: cannot connect to STS endpoint '%s' - verify the endpoint URL is correct and the service is running", endpointURL)
+	}
+	if strings.Contains(errStr, "no such host") {
+		return fmt.Errorf("unknown host: cannot resolve STS endpoint '%s' - check the endpoint URL for typos", endpointURL)
+	}
+	if strings.Contains(errStr, "certificate") || strings.Contains(errStr, "x509") {
+		return fmt.Errorf("TLS certificate error: cannot verify certificate for '%s' - use radosgw_ssl_verify=false if using self-signed certificates", endpointURL)
+	}
+	if strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline exceeded") {
+		return fmt.Errorf("connection timeout: STS endpoint '%s' did not respond in time - check network connectivity", endpointURL)
+	}
+
+	// Fallback: wrap with context
+	return fmt.Errorf("failed to assume role '%s' via endpoint '%s': %w", roleArn, endpointURL, err)
 }

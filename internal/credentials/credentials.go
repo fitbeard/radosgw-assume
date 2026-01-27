@@ -17,7 +17,7 @@ import (
 func GetCredentials(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
 	// Parse endpoint_url
 	if profileConfig.EndpointURL == "" {
-		return nil, fmt.Errorf("missing required 'endpoint_url' in profile configuration")
+		return nil, fmt.Errorf("profile '%s': missing required 'endpoint_url'. Add endpoint_url to your profile configuration", profileName)
 	}
 
 	var sourceConfig *config.ProfileConfig
@@ -45,7 +45,7 @@ func GetCredentials(profileName string, profileConfig *config.ProfileConfig, aws
 		}
 		roleArn = profileConfig.RoleArn
 	} else {
-		return nil, fmt.Errorf("no role_arn specified in profile configuration")
+		return nil, fmt.Errorf("profile '%s': missing required 'role_arn'. Specify the IAM role ARN to assume", profileName)
 	}
 
 	// Determine auth type first
@@ -56,11 +56,15 @@ func GetCredentials(profileName string, profileConfig *config.ProfileConfig, aws
 
 	// Extract required OIDC configuration from source profile (not needed for token auth)
 	if authType != "token" {
+		sourceProfileName := profileName
+		if profileConfig.SourceProfile != "" {
+			sourceProfileName = profileConfig.SourceProfile
+		}
 		if sourceConfig.RadosGWOIDCProvider == "" {
-			return nil, fmt.Errorf("missing required field 'radosgw_oidc_provider' in source profile configuration")
+			return nil, fmt.Errorf("profile '%s': missing required 'radosgw_oidc_provider' - specify your OIDC provider URL", sourceProfileName)
 		}
 		if sourceConfig.RadosGWOIDCClientID == "" {
-			return nil, fmt.Errorf("missing required field 'radosgw_oidc_client_id' in source profile configuration")
+			return nil, fmt.Errorf("profile '%s': missing required 'radosgw_oidc_client_id' - specify your OIDC client ID", sourceProfileName)
 		}
 	}
 
@@ -124,7 +128,7 @@ func GetCredentials(profileName string, profileConfig *config.ProfileConfig, aws
 	// Use STS to assume the role
 	result, err := sts.AssumeRoleWithWebIdentity(profileConfig.EndpointURL, roleArn, accessToken, profileName, sslVerify, sessionDuration)
 	if err != nil {
-		return nil, fmt.Errorf("AssumeRoleWithWebIdentity failed: %w", err)
+		return nil, err // Error already has context from sts.formatSTSError
 	}
 
 	return result, nil

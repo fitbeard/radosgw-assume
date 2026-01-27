@@ -2,6 +2,7 @@ package auth
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -105,6 +106,66 @@ func TestGenerateRandomString_Uniqueness(t *testing.T) {
 			t.Errorf("GenerateRandomString produced duplicate string: %s", s)
 		}
 		seen[s] = true
+	}
+}
+
+func TestFormatOIDCError(t *testing.T) {
+	providerURL := "https://keycloak.example.com/realms/test"
+
+	tests := []struct {
+		name        string
+		errorCode   string
+		errorDesc   string
+		wantContain string
+	}{
+		{
+			name:        "invalid_client",
+			errorCode:   "invalid_client",
+			errorDesc:   "",
+			wantContain: "client ID is not recognized",
+		},
+		{
+			name:        "invalid_grant",
+			errorCode:   "invalid_grant",
+			errorDesc:   "",
+			wantContain: "invalid or expired",
+		},
+		{
+			name:        "access_denied",
+			errorCode:   "access_denied",
+			errorDesc:   "",
+			wantContain: "denied",
+		},
+		{
+			name:        "server_error",
+			errorCode:   "server_error",
+			errorDesc:   "",
+			wantContain: "internal error",
+		},
+		{
+			name:        "unknown error with description",
+			errorCode:   "custom_error",
+			errorDesc:   "Something went wrong",
+			wantContain: "Something went wrong",
+		},
+		{
+			name:        "unknown error without description",
+			errorCode:   "custom_error",
+			errorDesc:   "",
+			wantContain: "custom_error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := FormatOIDCError(tt.errorCode, tt.errorDesc, providerURL)
+			if err == nil {
+				t.Fatal("FormatOIDCError returned nil, expected error")
+			}
+			if !strings.Contains(err.Error(), tt.wantContain) {
+				t.Errorf("FormatOIDCError() = %v, want to contain %v", err, tt.wantContain)
+			}
+		})
 	}
 }
 
