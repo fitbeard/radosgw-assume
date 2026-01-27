@@ -30,6 +30,19 @@ func LoadAWSConfig() (*ini.File, error) {
 	return config, nil
 }
 
+// LoadAWSConfigOrEmpty loads the AWS config, returning an empty config on error.
+// If verboseMode is true and loading fails, an error message is printed to stderr.
+func LoadAWSConfigOrEmpty(verboseMode bool) *ini.File {
+	awsConfig, err := LoadAWSConfig()
+	if err != nil {
+		if verboseMode {
+			fmt.Fprintf(os.Stderr, "# Failed to load config file: %v\n", err)
+		}
+		return ini.Empty()
+	}
+	return awsConfig
+}
+
 // GetRadosGWProfiles returns a list of profiles that have RadosGW-specific configuration
 func GetRadosGWProfiles(awsConfig *ini.File) []string {
 	var profiles []string

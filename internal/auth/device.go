@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,12 +24,7 @@ func AuthenticateDeviceFlow(providerURL, clientID, scope string, sslVerify bool,
 	data.Set("client_id", clientID)
 	data.Set("scope", scope)
 
-	client := &http.Client{}
-	if !sslVerify {
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
-	}
+	client := NewHTTPClient(sslVerify)
 
 	resp, err := client.PostForm(deviceAuthEndpoint, data)
 	if err != nil {
@@ -77,47 +71,32 @@ func AuthenticateDeviceFlow(providerURL, clientID, scope string, sslVerify bool,
 
 	interval := deviceResponse.Interval
 	if interval == 0 {
-		interval = 5
+		interval = DefaultPollingInterval
 	}
 
 	startTime := time.Now()
-	timeoutDuration := 60 * time.Second // Use fixed 60-second timeout
 
 	// Progress indication
-	progressTicker := time.NewTicker(5 * time.Second)
-	defer progressTicker.Stop()
+	progress := NewProgressIndicator()
 
-	progressDone := make(chan bool)
-	go func() {
-		for {
-			select {
-			case <-progressTicker.C:
-				fmt.Fprintf(os.Stderr, "#")
-			case <-progressDone:
-				return
-			}
-		}
-	}()
-
-	for time.Since(startTime) < timeoutDuration {
+	for time.Since(startTime) < AuthTimeout {
 		time.Sleep(time.Duration(interval) * time.Second)
 
 		resp, err := client.PostForm(tokenEndpoint, tokenData)
 		if err != nil {
-			progressDone <- true
+			progress.StopQuiet()
 			return "", fmt.Errorf("token request failed: %w", err)
 		}
 		defer func() { _ = resp.Body.Close() }()
 
 		var tokenResponse TokenResponse
 		if err := json.NewDecoder(resp.Body).Decode(&tokenResponse); err != nil {
-			progressDone <- true
+			progress.StopQuiet()
 			return "", fmt.Errorf("failed to parse token response: %w", err)
 		}
 
 		if resp.StatusCode == http.StatusOK && tokenResponse.AccessToken != "" {
-			progressDone <- true
-			fmt.Fprintf(os.Stderr, "\n") // New line after progress dots
+			progress.Stop()
 			if verboseMode {
 				fmt.Fprintf(os.Stderr, "# ✓ Authentication successful!\n")
 			}
@@ -129,15 +108,15 @@ func AuthenticateDeviceFlow(providerURL, clientID, scope string, sslVerify bool,
 			case "authorization_pending":
 				continue
 			case "slow_down":
-				interval += 5
+				interval += DefaultPollingInterval
 				continue
 			default:
-				progressDone <- true
+				progress.StopQuiet()
 				return "", fmt.Errorf("authentication failed: %s - %s", tokenResponse.Error, tokenResponse.ErrorDesc)
 			}
 		}
 	}
 
-	progressDone <- true
-	return "", fmt.Errorf("authentication timeout after %v", timeoutDuration)
+	progress.StopQuiet()
+	return "", fmt.Errorf("authentication timeout after %v", AuthTimeout)
 }

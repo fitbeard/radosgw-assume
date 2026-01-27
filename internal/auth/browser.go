@@ -2,9 +2,7 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -26,28 +24,32 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope string, sslVerify bool
 	// OAuth2/PKCE setup
 	var redirectURI string
 	var server *http.Server
-	port := 8080
-	fallbackPort := 18088
 
 	// Try primary port first, fallback to alternative if busy
-	for _, tryPort := range []int{port, fallbackPort} {
+	for _, tryPort := range []int{CallbackPort, CallbackFallbackPort} {
 		redirectURI = fmt.Sprintf("http://localhost:%d/callback", tryPort)
 		server = &http.Server{Addr: fmt.Sprintf(":%d", tryPort)}
 
 		// Test if port is available
 		if err := testPortAvailability(tryPort); err == nil {
 			break
-		} else if tryPort == fallbackPort {
+		} else if tryPort == CallbackFallbackPort {
 			// Both ports failed
-			return "", fmt.Errorf("both callback ports (8080 and 18088) are in use, please free one of them")
+			return "", fmt.Errorf("both callback ports (%d and %d) are in use, please free one of them", CallbackPort, CallbackFallbackPort)
 		}
 		if verboseMode {
-			fmt.Fprintf(os.Stderr, "# Port %d is busy, trying fallback port %d...\n", tryPort, fallbackPort)
+			fmt.Fprintf(os.Stderr, "# Port %d is busy, trying fallback port %d...\n", tryPort, CallbackFallbackPort)
 		}
 	}
 
-	state := generateRandomString(32)
-	codeVerifier := generateRandomString(96)
+	state, err := GenerateRandomString(32)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate state: %w", err)
+	}
+	codeVerifier, err := GenerateRandomString(96)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate code verifier: %w", err)
+	}
 
 	hash := sha256.Sum256([]byte(codeVerifier))
 	codeChallenge := base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString(hash[:])
@@ -156,8 +158,8 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope string, sslVerify bool
 	// Give server a moment to start
 	select {
 	case err := <-serverError:
-		return "", err
-	case <-time.After(200 * time.Millisecond):
+		return "", fmt.Errorf("callback server failed to start: %w", err)
+	case <-time.After(ServerStartTimeout):
 		// Server started successfully
 	}
 
@@ -195,35 +197,20 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope string, sslVerify bool
 	fmt.Fprintf(os.Stderr, "# Waiting for authentication...\n")
 
 	// Wait for callback with timeout
-	timeout := time.After(60 * time.Second)
+	timeout := time.After(AuthTimeout)
 
 	// Progress indication
-	progressTicker := time.NewTicker(5 * time.Second)
-	defer progressTicker.Stop()
-
-	progressDone := make(chan bool)
-	go func() {
-		for {
-			select {
-			case <-progressTicker.C:
-				fmt.Fprintf(os.Stderr, "#")
-			case <-progressDone:
-				return
-			}
-		}
-	}()
+	progress := NewProgressIndicator()
 
 	select {
 	case <-done:
 		// Callback received
-		progressDone <- true
+		progress.Stop()
 	case <-timeout:
-		progressDone <- true
+		progress.StopQuiet()
 		_ = server.Shutdown(context.Background())
-		return "", fmt.Errorf("authentication timed out")
+		return "", fmt.Errorf("authentication timed out after %v", AuthTimeout)
 	}
-
-	fmt.Fprintf(os.Stderr, "\n") // New line after progress dots
 
 	// Shutdown server
 	_ = server.Shutdown(context.Background())
@@ -257,12 +244,7 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope string, sslVerify bool
 	tokenData.Set("redirect_uri", redirectURI)
 	tokenData.Set("code_verifier", codeVerifier)
 
-	client := &http.Client{}
-	if !sslVerify {
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
-	}
+	client := NewHTTPClient(sslVerify)
 
 	resp, err := client.PostForm(tokenEndpoint, tokenData)
 	if err != nil {
@@ -303,23 +285,6 @@ func testPortAvailability(port int) error {
 	}
 	_ = ln.Close()
 	return nil
-}
-
-func generateRandomString(length int) string {
-	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	result := make([]byte, length)
-
-	randomBytes := make([]byte, length)
-	_, err := rand.Read(randomBytes)
-	if err != nil {
-		panic(err)
-	}
-
-	for i := 0; i < length; i++ {
-		result[i] = chars[randomBytes[i]%byte(len(chars))]
-	}
-
-	return string(result)
 }
 
 func openBrowser(url string) error {
