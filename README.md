@@ -13,7 +13,9 @@ A modern CLI tool that enables seamless AWS role assumption for **Ceph RadosGW**
 ## Why radosgw-assume?
 
 ### The Challenge
+
 Ceph RadosGW supports OIDC for authentication, but the integration workflow is complex:
+
 - Multiple authentication flows (device, browser, token-based)
 - PKCE security requirements for browser flows
 - Complex STS AssumeRoleWithWebIdentity calls
@@ -21,7 +23,9 @@ Ceph RadosGW supports OIDC for authentication, but the integration workflow is c
 - Session duration management
 
 ### The Solution
+
 **radosgw-assume** abstracts this complexity into a simple, secure CLI tool that:
+
 - ✅ **Supports multiple OIDC flows** - Device flow for CI/CD, browser flow for interactive use
 - ✅ **Handles security properly** - PKCE, state validation, secure token storage
 - ✅ **Works everywhere** - CI/CD pipelines, developer workstations, shell scripts
@@ -34,7 +38,7 @@ Ceph RadosGW supports OIDC for authentication, but the integration workflow is c
 
 **radosgw-assume** performs secure credential acquisition through this workflow:
 
-```
+```ini
 ┌─────────────────┐    ┌─────────────────────┐    ┌──────────────────┐
 │   radosgw-      │    │   OIDC Provider     │    │   RadosGW STS    │
 │   assume        │    │   (Keycloak/GitHub) │    │   Endpoint       │
@@ -80,8 +84,6 @@ Ceph RadosGW supports OIDC for authentication, but the integration workflow is c
 ### Output Format
 
 **radosgw-assume** provides credentials in shell export format:
-
-**Shell Export**
 
 ```bash
 export AWS_ACCESS_KEY_ID=AKIAI...
@@ -129,15 +131,15 @@ Examples:
   radosgw-assume --verbose              # Verbose output with detailed info
 
 Environment Variables (when using -e/--env):
-  RADOSGW_OIDC_PROVIDER     - OIDC provider URL (required, except for token auth)
-  RADOSGW_OIDC_CLIENT_ID    - OIDC client ID (required, except for token auth)
-  AWS_ENDPOINT_URL          - RadosGW endpoint URL (required)
-  RADOSGW_ROLE_ARN          - Role ARN to assume (required)
-  RADOSGW_ROLE_SESSION_NAME - Role session name (optional, default: radosgw-assume-TIMESTAMP)
-  RADOSGW_OIDC_AUTH_TYPE    - Auth type: device|browser|token (optional, default: device)
-  RADOSGW_OIDC_TOKEN        - Pre-existing OIDC token (required for token auth type)
-  RADOSGW_OIDC_SCOPE        - OIDC scope (optional, default: openid, ignored for token auth)
-  RADOSGW_SSL_VERIFY        - SSL verification: true|false (optional, default: true)
+  RADOSGW_OIDC_PROVIDER      - OIDC provider URL (required, except for token auth)
+  RADOSGW_OIDC_CLIENT_ID     - OIDC client ID (required, except for token auth)
+  AWS_ENDPOINT_URL           - RadosGW endpoint URL (required)
+  RADOSGW_ROLE_ARN           - Role ARN to assume (required)
+  RADOSGW_ROLE_SESSION_NAME  - Role session name (optional, default: radosgw-assume-TIMESTAMP)
+  RADOSGW_OIDC_AUTH_TYPE     - Auth type: device|browser|token (optional, default: device)
+  RADOSGW_OIDC_TOKEN         - Pre-existing OIDC token (required for token auth type)
+  RADOSGW_OIDC_SCOPE         - OIDC scope (optional, default: openid, ignored for token auth)
+  RADOSGW_SSL_VERIFY         - SSL verification: true|false (optional, default: true)
 
 Configuration:
   Edit ~/.aws/config with RadosGW and OIDC settings
@@ -146,12 +148,14 @@ Configuration:
 ## Key Features
 
 ### 🔐 **Security First**
+
 - No long-lived credentials stored
 - PKCE for browser flows
 - Secure token handling
 - Automatic credential expiration
 
 ### 🚀 **Developer Experience**
+
 - CI/CD pipeline friendly
 - Zero-configuration for common setups
 - Shell integration for immediate use
@@ -159,6 +163,7 @@ Configuration:
 - Clean shell export format
 
 ### 🔧 **Flexibility**
+
 - Supports all major OIDC providers
 - Multiple authentication flows
 - Configurable session durations
@@ -167,11 +172,13 @@ Configuration:
 ## Who Should Use This?
 
 ### Development Teams
+
 - **Ceph RadosGW users** who need temporary S3 credentials
 - **Cloud developers** working with OIDC-integrated storage
 - **DevOps engineers** building secure CI/CD pipelines
 
 ### Use Cases
+
 - **Application Development** - Secure S3 access without embedded credentials
 - **Backup Solutions** - Secure backup storage with time-limited access
 - **CI/CD Automation** - Pipeline access to artifact storage
@@ -192,10 +199,10 @@ radosgw_oidc_scope     = openid offline_access
 radosgw_ssl_verify     = false
 
 [profile assume-device]
-source_profile         = base
-endpoint_url           = https://storage.example.com
-role_arn               = arn:aws:iam:::role/examples/KeycloakExample
-role_session_name      = device-session
+source_profile    = base
+endpoint_url      = https://storage.example.com
+role_arn          = arn:aws:iam:::role/examples/KeycloakExample
+role_session_name = device-session
 
 [profile assume-browser]
 source_profile         = base
@@ -264,7 +271,7 @@ aws s3 ls
 - name: Upload to S3
   env:
     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    RADOSGW_ASSUME_RELEASE: "v1.0.0"
+    RADOSGW_ASSUME_RELEASE: "v1.2.0"
     AWS_ENDPOINT_URL: https://storage.example.com
     RADOSGW_ROLE_ARN: "arn:aws:iam:::role/examples/GitHubExample"
     RADOSGW_OIDC_AUTH_TYPE: token
