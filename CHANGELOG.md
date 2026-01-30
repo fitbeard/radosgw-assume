@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/fitbeard/radosgw-assume/compare/v1.1.0...v1.2.0) (2026-01-30)
+
+
+### Features
+
+* add custom role_session_name option ([bcab432](https://github.com/fitbeard/radosgw-assume/commit/bcab4323298628b5cd9e0aff67aa2887012625dd))
+
 ## [1.1.0](https://github.com/fitbeard/radosgw-assume/compare/v1.0.0...v1.1.0) (2026-01-27)
 
 
