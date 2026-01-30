@@ -8,6 +8,7 @@ import (
 
 	"github.com/fitbeard/radosgw-assume/internal/config"
 	"github.com/fitbeard/radosgw-assume/internal/credentials"
+	"github.com/fitbeard/radosgw-assume/internal/sts"
 	"github.com/fitbeard/radosgw-assume/internal/ui"
 	"github.com/fitbeard/radosgw-assume/internal/version"
 	"github.com/fitbeard/radosgw-assume/pkg/duration"
@@ -23,6 +24,7 @@ func main() {
 	var verboseMode = false
 	var useEnv = false
 	var sessionDuration = time.Hour // Default 1 hour
+	var sessionName string          // Custom session name (empty = default timestamp-based)
 
 	// Parse command-line arguments
 	args := os.Args[1:]
@@ -56,6 +58,18 @@ func main() {
 			}
 			if err := duration.Validate(sessionDuration); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		case "-s", "--session":
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "Error: Session name flag requires a value\n")
+				fmt.Fprintf(os.Stderr, "Usage: %s -s my-session [profile]\n", os.Args[0])
+				os.Exit(1)
+			}
+			i++ // Move to the next argument (session name value)
+			sessionName = args[i]
+			if err := sts.ValidateSessionName(sessionName); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: Invalid session name '%s': %v\n", sessionName, err)
 				os.Exit(1)
 			}
 		default:
@@ -113,6 +127,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+	}
+
+	// CLI session name overrides config file setting
+	if sessionName != "" {
+		profileConfig.RoleSessionName = sessionName
 	}
 
 	// Get credentials

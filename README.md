@@ -107,6 +107,8 @@ Options:
   -v, --verbose             Show verbose output with detailed information
   -d, --duration DURATION   Session duration (default: 1h, min: 15m, max: 12h)
                             Formats: '3600' (seconds), '60m' (minutes), '1h' (hours)
+  -s, --session NAME        Session name (default: radosgw-assume-TIMESTAMP)
+                            Only alphanumeric characters and dashes allowed
 
 Commands:
   version                   Show version information
@@ -115,25 +117,27 @@ Arguments:
   PROFILE       Profile name from ~/.aws/config
 
 Examples:
-  radosgw-assume                    # Interactive selection, clean output
-  radosgw-assume myprofile          # Use specific profile, clean output
-  radosgw-assume --env              # Use environment variables
-  radosgw-assume -d 2h myprofile    # 2-hour session duration
-  radosgw-assume -d 30m myprofile   # 30-minute session duration
-  radosgw-assume -d 15m myprofile   # 15-minute session duration (minimum)
-  eval $(radosgw-assume)            # Interactive with credential export
-  eval $(radosgw-assume myprofile)  # Direct profile with export
-  radosgw-assume --verbose          # Verbose output with detailed info
+  radosgw-assume                        # Interactive selection, clean output
+  radosgw-assume myprofile              # Use specific profile, clean output
+  radosgw-assume --env                  # Use environment variables
+  radosgw-assume -d 2h myprofile        # 2-hour session duration
+  radosgw-assume -d 30m myprofile       # 30-minute session duration
+  radosgw-assume -d 15m myprofile       # 15-minute session duration (minimum)
+  radosgw-assume -s my-session profile  # Custom session name
+  eval $(radosgw-assume)                # Interactive with credential export
+  eval $(radosgw-assume myprofile)      # Direct profile with export
+  radosgw-assume --verbose              # Verbose output with detailed info
 
 Environment Variables (when using -e/--env):
-  RADOSGW_OIDC_PROVIDER   - OIDC provider URL (required, except for token auth)
-  RADOSGW_OIDC_CLIENT_ID  - OIDC client ID (required, except for token auth)
-  AWS_ENDPOINT_URL        - RadosGW endpoint URL (required)
-  RADOSGW_ROLE_ARN        - Role ARN to assume (required)
-  RADOSGW_OIDC_AUTH_TYPE  - Auth type: device|browser|token (optional, default: device)
-  RADOSGW_OIDC_TOKEN      - Pre-existing OIDC token (required for token auth type)
-  RADOSGW_OIDC_SCOPE      - OIDC scope (optional, default: openid, ignored for token auth)
-  RADOSGW_SSL_VERIFY      - SSL verification for STS endpoint: true|false (optional, default: true)
+  RADOSGW_OIDC_PROVIDER     - OIDC provider URL (required, except for token auth)
+  RADOSGW_OIDC_CLIENT_ID    - OIDC client ID (required, except for token auth)
+  AWS_ENDPOINT_URL          - RadosGW endpoint URL (required)
+  RADOSGW_ROLE_ARN          - Role ARN to assume (required)
+  RADOSGW_ROLE_SESSION_NAME - Role session name (optional, default: radosgw-assume-TIMESTAMP)
+  RADOSGW_OIDC_AUTH_TYPE    - Auth type: device|browser|token (optional, default: device)
+  RADOSGW_OIDC_TOKEN        - Pre-existing OIDC token (required for token auth type)
+  RADOSGW_OIDC_SCOPE        - OIDC scope (optional, default: openid, ignored for token auth)
+  RADOSGW_SSL_VERIFY        - SSL verification: true|false (optional, default: true)
 
 Configuration:
   Edit ~/.aws/config with RadosGW and OIDC settings
@@ -188,9 +192,10 @@ radosgw_oidc_scope     = openid offline_access
 radosgw_ssl_verify     = false
 
 [profile assume-device]
-source_profile = base
-endpoint_url   = https://storage.example.com
-role_arn       = arn:aws:iam:::role/examples/KeycloakExample
+source_profile         = base
+endpoint_url           = https://storage.example.com
+role_arn               = arn:aws:iam:::role/examples/KeycloakExample
+role_session_name      = device-session
 
 [profile assume-browser]
 source_profile         = base
@@ -207,6 +212,7 @@ radosgw_oidc_client_id = rgw-client-public
 radosgw_oidc_auth_type = device
 radosgw_ssl_verify     = false
 role_arn               = arn:aws:iam:::role/examples/KeycloakExample
+role_session_name      = my-custom-session
 ```
 
 ## RadosGW and OIDC Provider Setup
@@ -222,12 +228,13 @@ For configuration-free operation:
 
 ```bash
 export AWS_ENDPOINT_URL="https://storage.example.com"
-export RADOSGW_OIDC_PROVIDER="https://keycloak.example.com/realms/myrealm"  
+export RADOSGW_OIDC_PROVIDER="https://keycloak.example.com/realms/myrealm"
 export RADOSGW_OIDC_CLIENT_ID="rgw-client-public"
 export RADOSGW_ROLE_ARN="arn:aws:iam:::role/examples/KeycloakExample"
-export RADOSGW_OIDC_AUTH_TYPE="device"  # device|browser|token
-export RADOSGW_OIDC_SCOPE="openid"     # Optional
-export RADOSGW_SSL_VERIFY="true"       # Optional
+export RADOSGW_ROLE_SESSION_NAME="my-session" # Optional
+export RADOSGW_OIDC_AUTH_TYPE="device"        # device|browser|token
+export RADOSGW_OIDC_SCOPE="openid"            # Optional
+export RADOSGW_SSL_VERIFY="true"              # Optional
 ```
 
 ## Examples

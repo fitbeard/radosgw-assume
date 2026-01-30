@@ -10,6 +10,7 @@ type ProfileConfig struct {
 	RadosGWOIDCScope    string `ini:"radosgw_oidc_scope"`
 	RadosGWSSLVerify    string `ini:"radosgw_ssl_verify"`
 	RoleArn             string `ini:"role_arn"`
+	RoleSessionName     string `ini:"role_session_name"`
 	SourceProfile       string `ini:"source_profile"`
 }
 
@@ -21,4 +22,5 @@ type AssumeRoleResult struct {
 	Expiration      string
 	ProfileName     string
 	EndpointURL     string
+	AssumedRoleArn  string
 }

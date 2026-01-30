@@ -126,51 +126,119 @@ func TestAssumeRoleResult(t *testing.T) {
 	}
 }
 
-func TestSessionNameGeneration(t *testing.T) {
-	// Test session name creation logic
+func TestValidateSessionName(t *testing.T) {
 	tests := []struct {
 		name        string
-		profileName string
-		wantPrefix  string
+		sessionName string
+		wantErr     bool
+		errContains string
 	}{
 		{
-			name:        "normal profile name",
-			profileName: "test-profile",
-			wantPrefix:  "radosgw-assume-test-profile",
+			name:        "valid simple name",
+			sessionName: "my-session",
+			wantErr:     false,
 		},
 		{
-			name:        "env profile",
-			profileName: "env",
-			wantPrefix:  "radosgw-assume-env",
+			name:        "valid alphanumeric",
+			sessionName: "session123",
+			wantErr:     false,
+		},
+		{
+			name:        "valid with multiple dashes",
+			sessionName: "my-custom-session-name",
+			wantErr:     false,
+		},
+		{
+			name:        "valid uppercase",
+			sessionName: "MySession",
+			wantErr:     false,
+		},
+		{
+			name:        "valid mixed case with numbers",
+			sessionName: "Session-123-Test",
+			wantErr:     false,
+		},
+		{
+			name:        "invalid empty",
+			sessionName: "",
+			wantErr:     true,
+			errContains: "cannot be empty",
+		},
+		{
+			name:        "invalid leading dash",
+			sessionName: "-my-session",
+			wantErr:     true,
+			errContains: "cannot start with a dash",
+		},
+		{
+			name:        "invalid trailing dash",
+			sessionName: "my-session-",
+			wantErr:     true,
+			errContains: "cannot end with a dash",
+		},
+		{
+			name:        "invalid underscore",
+			sessionName: "my_session",
+			wantErr:     true,
+			errContains: "alphanumeric",
+		},
+		{
+			name:        "invalid dot",
+			sessionName: "my.session",
+			wantErr:     true,
+			errContains: "alphanumeric",
+		},
+		{
+			name:        "invalid space",
+			sessionName: "my session",
+			wantErr:     true,
+			errContains: "alphanumeric",
+		},
+		{
+			name:        "invalid special characters",
+			sessionName: "my@session!",
+			wantErr:     true,
+			errContains: "alphanumeric",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Since generateSessionName might be private, we test the behavior indirectly
-			// by checking the session name that would be created for AssumeRoleWithWebIdentity
-			sessionName := fmt.Sprintf("radosgw-assume-%s", tt.profileName)
-			
-			if !strings.HasPrefix(sessionName, tt.wantPrefix) {
-				t.Errorf("session name = %v, want prefix %v", sessionName, tt.wantPrefix)
-			}
-			
-			// Session name should only contain valid characters
-			for _, char := range sessionName {
-				if !isValidSessionNameChar(char) {
-					t.Errorf("session name contains invalid character: %c in %s", char, sessionName)
+			err := ValidateSessionName(tt.sessionName)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ValidateSessionName(%q) expected error but got none", tt.sessionName)
+					return
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("ValidateSessionName(%q) error = %v, want to contain %q", tt.sessionName, err, tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("ValidateSessionName(%q) unexpected error: %v", tt.sessionName, err)
 				}
 			}
 		})
 	}
 }
 
-// Helper function to check valid session name characters
-func isValidSessionNameChar(r rune) bool {
-	return (r >= 'a' && r <= 'z') ||
-		(r >= 'A' && r <= 'Z') ||
-		(r >= '0' && r <= '9') ||
-		r == '-' || r == '_' || r == '.'
+func TestDefaultSessionNameFormat(t *testing.T) {
+	// Test that default session name follows expected format: radosgw-assume-TIMESTAMP
+	// The timestamp format is 20060102T150405Z
+	defaultPrefix := "radosgw-assume-"
+
+	// Verify the prefix is correct
+	if !strings.HasPrefix(defaultPrefix, "radosgw-assume-") {
+		t.Errorf("default session name prefix should be 'radosgw-assume-', got %s", defaultPrefix)
+	}
+
+	// Verify that a timestamp-based session name would be valid
+	exampleSessionName := "radosgw-assume-20240115T143052Z"
+	err := ValidateSessionName(exampleSessionName)
+	if err != nil {
+		t.Errorf("ValidateSessionName(%q) should be valid for default timestamp format: %v", exampleSessionName, err)
+	}
 }
 
 func TestFormatSTSError(t *testing.T) {

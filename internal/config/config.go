@@ -133,6 +133,9 @@ func ResolveSourceProfile(profileConfig *ProfileConfig, awsConfig *ini.File, ver
 	if profileConfig.RoleArn != "" {
 		mergedConfig.RoleArn = profileConfig.RoleArn
 	}
+	if profileConfig.RoleSessionName != "" {
+		mergedConfig.RoleSessionName = profileConfig.RoleSessionName
+	}
 
 	return &mergedConfig, nil
 }
@@ -160,6 +163,9 @@ func GetProfileConfigFromEnv() (*ProfileConfig, error) {
 		}
 		if roleArn := os.Getenv("RADOSGW_ROLE_ARN"); roleArn != "" {
 			profileConfig.RoleArn = roleArn
+		}
+		if roleSessionName := os.Getenv("RADOSGW_ROLE_SESSION_NAME"); roleSessionName != "" {
+			profileConfig.RoleSessionName = roleSessionName
 		}
 
 		return profileConfig, nil
@@ -195,6 +201,9 @@ func GetProfileConfigFromEnv() (*ProfileConfig, error) {
 	}
 	if roleArn := os.Getenv("RADOSGW_ROLE_ARN"); roleArn != "" {
 		profileConfig.RoleArn = roleArn
+	}
+	if roleSessionName := os.Getenv("RADOSGW_ROLE_SESSION_NAME"); roleSessionName != "" {
+		profileConfig.RoleSessionName = roleSessionName
 	}
 
 	return profileConfig, nil

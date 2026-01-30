@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,8 +17,28 @@ import (
 	"github.com/fitbeard/radosgw-assume/internal/config"
 )
 
+// ValidateSessionName validates that the session name contains only alphanumeric
+// characters and dashes, and doesn't start or end with a dash
+func ValidateSessionName(name string) error {
+	if name == "" {
+		return fmt.Errorf("session name cannot be empty")
+	}
+	if strings.HasPrefix(name, "-") {
+		return fmt.Errorf("session name cannot start with a dash")
+	}
+	if strings.HasSuffix(name, "-") {
+		return fmt.Errorf("session name cannot end with a dash")
+	}
+	// Only allow alphanumeric and dashes
+	validPattern := regexp.MustCompile(`^[a-zA-Z0-9-]+$`)
+	if !validPattern.MatchString(name) {
+		return fmt.Errorf("session name can only contain alphanumeric characters (a-z, A-Z, 0-9) and dashes (-)")
+	}
+	return nil
+}
+
 // AssumeRoleWithWebIdentity performs STS AssumeRoleWithWebIdentity operation
-func AssumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, sessionName string, sslVerify bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
+func AssumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessionName string, sslVerify bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
 	// Create STS client with anonymous credentials
 	cfg := aws.Config{
 		Credentials: aws.AnonymousCredentials{},
@@ -40,7 +61,7 @@ func AssumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, sessionNa
 	// Assume role with web identity
 	input := &sts.AssumeRoleWithWebIdentityInput{
 		RoleArn:          aws.String(roleArn),
-		RoleSessionName:  aws.String(fmt.Sprintf("radosgw-assume-%s", sessionName)),
+		RoleSessionName:  aws.String(roleSessionName),
 		DurationSeconds:  aws.Int32(int32(sessionDuration.Seconds())),
 		WebIdentityToken: aws.String(webIdentityToken),
 	}
@@ -53,12 +74,18 @@ func AssumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, sessionNa
 	// Format expiration time
 	expiration := result.Credentials.Expiration.Format(time.RFC3339)
 
+	// Extract assumed role user ARN (contains session name)
+	var assumedRoleArn string
+	if result.AssumedRoleUser != nil && result.AssumedRoleUser.Arn != nil {
+		assumedRoleArn = *result.AssumedRoleUser.Arn
+	}
+
 	return &config.AssumeRoleResult{
+		AssumedRoleArn: assumedRoleArn,
 		AccessKeyID:     *result.Credentials.AccessKeyId,
 		SecretAccessKey: *result.Credentials.SecretAccessKey,
 		SessionToken:    *result.Credentials.SessionToken,
 		Expiration:      expiration,
-		ProfileName:     sessionName,
 		EndpointURL:     endpointURL,
 	}, nil
 }

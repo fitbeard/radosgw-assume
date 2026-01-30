@@ -121,15 +121,29 @@ func GetCredentials(profileName string, profileConfig *config.ProfileConfig, aws
 		return nil, fmt.Errorf("unsupported auth type: %s (supported: device, browser, token)", authType)
 	}
 
+	// Determine session name: use custom name as-is or generate timestamp-based default with prefix
+	roleSessionName := profileConfig.RoleSessionName
+	if roleSessionName == "" {
+		roleSessionName = fmt.Sprintf("radosgw-assume-%s", time.Now().UTC().Format("20060102T150405Z"))
+	}
+
 	if verboseMode {
 		fmt.Fprintf(os.Stderr, "# Assuming role with web identity: %s\n", roleArn)
+		fmt.Fprintf(os.Stderr, "# Session name: %s\n", roleSessionName)
 	}
 
 	// Use STS to assume the role
-	result, err := sts.AssumeRoleWithWebIdentity(profileConfig.EndpointURL, roleArn, accessToken, profileName, sslVerify, sessionDuration)
+	result, err := sts.AssumeRoleWithWebIdentity(profileConfig.EndpointURL, roleArn, accessToken, roleSessionName, sslVerify, sessionDuration)
 	if err != nil {
 		return nil, err // Error already has context from sts.formatSTSError
 	}
+
+	if verboseMode && result.AssumedRoleArn != "" {
+		fmt.Fprintf(os.Stderr, "# Assumed role ARN: %s\n", result.AssumedRoleArn)
+	}
+
+	// Set profile name for output display
+	result.ProfileName = profileName
 
 	return result, nil
 }

@@ -201,6 +201,7 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 	originalProvider := os.Getenv("RADOSGW_OIDC_PROVIDER")
 	originalClientID := os.Getenv("RADOSGW_OIDC_CLIENT_ID")
 	originalAuthType := os.Getenv("RADOSGW_OIDC_AUTH_TYPE")
+	originalSessionName := os.Getenv("RADOSGW_ROLE_SESSION_NAME")
 
 	defer func() {
 		// Restore original env
@@ -208,13 +209,15 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 		_ = os.Setenv("RADOSGW_OIDC_PROVIDER", originalProvider)
 		_ = os.Setenv("RADOSGW_OIDC_CLIENT_ID", originalClientID)
 		_ = os.Setenv("RADOSGW_OIDC_AUTH_TYPE", originalAuthType)
+		_ = os.Setenv("RADOSGW_ROLE_SESSION_NAME", originalSessionName)
 	}()
 
 	tests := []struct {
-		name    string
-		envVars map[string]string
-		wantErr bool
-		wantURL string
+		name            string
+		envVars         map[string]string
+		wantErr         bool
+		wantURL         string
+		wantSessionName string
 	}{
 		{
 			name: "complete OIDC config",
@@ -234,6 +237,29 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 			},
 			wantErr: false,
 			wantURL: "https://test.example.com",
+		},
+		{
+			name: "with custom session name",
+			envVars: map[string]string{
+				"AWS_ENDPOINT_URL":          "https://test.example.com",
+				"RADOSGW_OIDC_PROVIDER":     "https://oidc.example.com",
+				"RADOSGW_OIDC_CLIENT_ID":    "test-client",
+				"RADOSGW_ROLE_SESSION_NAME": "my-custom-session",
+			},
+			wantErr:         false,
+			wantURL:         "https://test.example.com",
+			wantSessionName: "my-custom-session",
+		},
+		{
+			name: "token auth with custom session name",
+			envVars: map[string]string{
+				"AWS_ENDPOINT_URL":          "https://test.example.com",
+				"RADOSGW_OIDC_AUTH_TYPE":    "token",
+				"RADOSGW_ROLE_SESSION_NAME": "token-session",
+			},
+			wantErr:         false,
+			wantURL:         "https://test.example.com",
+			wantSessionName: "token-session",
 		},
 		{
 			name: "missing endpoint",
@@ -260,6 +286,7 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 			_ = os.Unsetenv("RADOSGW_OIDC_PROVIDER")
 			_ = os.Unsetenv("RADOSGW_OIDC_CLIENT_ID")
 			_ = os.Unsetenv("RADOSGW_OIDC_AUTH_TYPE")
+			_ = os.Unsetenv("RADOSGW_ROLE_SESSION_NAME")
 
 			// Set test env vars
 			for key, value := range tt.envVars {
@@ -282,6 +309,10 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 
 			if profileConfig.EndpointURL != tt.wantURL {
 				t.Errorf("GetProfileConfigFromEnv() endpoint = %v, want %v", profileConfig.EndpointURL, tt.wantURL)
+			}
+
+			if tt.wantSessionName != "" && profileConfig.RoleSessionName != tt.wantSessionName {
+				t.Errorf("GetProfileConfigFromEnv() session_name = %v, want %v", profileConfig.RoleSessionName, tt.wantSessionName)
 			}
 		})
 	}
