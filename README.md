@@ -94,6 +94,18 @@ export AWS_CREDENTIAL_EXPIRATION=2024-12-11T15:30:00Z
 export AWS_SESSION_EXPIRATION=2024-12-11T15:30:00Z
 ```
 
+## Installation
+
+### Homebrew (macOS/Linux)
+
+```bash
+brew install fitbeard/radosgw-assume
+```
+
+### Binary Download
+
+Download the latest release from [GitHub Releases](https://github.com/fitbeard/radosgw-assume/releases) and extract to your PATH.
+
 ## Quick Start
 
 ### Basic Usage
