@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/fitbeard/radosgw-assume/compare/v1.2.0...v1.3.0) (2026-02-10)
+
+
+### Features
+
+* add brew release ([4ab6fc3](https://github.com/fitbeard/radosgw-assume/commit/4ab6fc3486fd58644c7dc583e82ca0e015f41860))
+
 ## [1.2.0](https://github.com/fitbeard/radosgw-assume/compare/v1.1.0...v1.2.0) (2026-01-30)
 
 
