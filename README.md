@@ -99,7 +99,8 @@ export AWS_SESSION_EXPIRATION=2024-12-11T15:30:00Z
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew install fitbeard/radosgw-assume
+brew tap fitbeard/radosgw-assume
+brew install radosgw-assume
 ```
 
 ### Binary Download
