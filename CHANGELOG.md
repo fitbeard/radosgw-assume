@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.4.0](https://github.com/fitbeard/radosgw-assume/compare/v1.3.0...v1.4.0) (2026-03-08)
+
+
+### Features
+
+* update release-please config ([#25](https://github.com/fitbeard/radosgw-assume/issues/25)) ([6e74d4b](https://github.com/fitbeard/radosgw-assume/commit/6e74d4bcdb231edf1b3005664878e915d6d67a2a))
+
+
+### Miscellaneous
+
+* **deps:** Bump github.com/aws/aws-sdk-go-v2 from 1.41.2 to 1.41.3 ([#24](https://github.com/fitbeard/radosgw-assume/issues/24)) ([ca646bf](https://github.com/fitbeard/radosgw-assume/commit/ca646bf4a58768d838e317b6fd5b8ec00f74d4c2))
+* **deps:** Bump github.com/aws/aws-sdk-go-v2/service/sts ([#19](https://github.com/fitbeard/radosgw-assume/issues/19)) ([3cce704](https://github.com/fitbeard/radosgw-assume/commit/3cce7040b16f1a3740c3382b6752a84375ae854f))
+* **deps:** Bump github.com/aws/aws-sdk-go-v2/service/sts ([#22](https://github.com/fitbeard/radosgw-assume/issues/22)) ([5346d77](https://github.com/fitbeard/radosgw-assume/commit/5346d77b7c2334c83a4796a830e3db2111fe3bfb))
+* update README ([#17](https://github.com/fitbeard/radosgw-assume/issues/17)) ([fda3c5c](https://github.com/fitbeard/radosgw-assume/commit/fda3c5ce55a23da08f233105c38bce04ddaeb299))
+
 ## [1.3.0](https://github.com/fitbeard/radosgw-assume/compare/v1.2.0...v1.3.0) (2026-02-10)
 
 
