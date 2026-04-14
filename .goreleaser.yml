@@ -37,19 +37,14 @@ changelog:
 checksum:
   name_template: radosgw-assume-v{{ .Version }}-checksums.txt
 
-brews:
+homebrew_casks:
   - name: radosgw-assume
     commit_author:
       name: fitbeard
       email: tadasas@gmail.com
     commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
-    directory: Formula
     homepage: https://github.com/fitbeard/radosgw-assume
     description: CLI tool for AWS STS role assumption with RadosGW.
-    install: |
-      bin.install "radosgw-assume"
-    test: |
-      system "radosgw-assume version"
     repository:
       owner: fitbeard
       name: homebrew-radosgw-assume
