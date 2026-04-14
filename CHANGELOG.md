@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/fitbeard/radosgw-assume/compare/v1.4.0...v1.4.1) (2026-04-14)
+
+
+### Bug Fixes
+
+* remove the quarantine bit from the binary on MacOS ([#35](https://github.com/fitbeard/radosgw-assume/issues/35)) ([55595c3](https://github.com/fitbeard/radosgw-assume/commit/55595c34410310f6d34d751d3e18d57f4cb78542))
+
 ## [1.4.0](https://github.com/fitbeard/radosgw-assume/compare/v1.3.0...v1.4.0) (2026-04-14)
 
 
