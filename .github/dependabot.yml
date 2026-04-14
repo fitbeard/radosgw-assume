@@ -5,6 +5,12 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+      day: sunday
+      time: "16:00"
+    groups:
+      aws-sdk:
+         patterns:
+          - "github.com/aws/aws-sdk-go*"
     commit-message:
       prefix: "chore(deps)"
 
@@ -12,5 +18,7 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+      day: sunday
+      time: "16:00"
     commit-message:
       prefix: "chore(deps)"
