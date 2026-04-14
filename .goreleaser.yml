@@ -45,6 +45,12 @@ homebrew_casks:
     commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
     homepage: https://github.com/fitbeard/radosgw-assume
     description: CLI tool for AWS STS role assumption with RadosGW.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/radosgw-assume"]
+          end
     repository:
       owner: fitbeard
       name: homebrew-radosgw-assume
