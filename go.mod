@@ -7,7 +7,7 @@ toolchain go1.25.5
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.7
 	github.com/aws/aws-sdk-go-v2/service/sts v1.42.1
-	github.com/aws/smithy-go v1.25.1
+	github.com/aws/smithy-go v1.26.0
 	github.com/manifoldco/promptui v0.9.0
 	gopkg.in/ini.v1 v1.67.2
 )
