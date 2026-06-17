@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.3](https://github.com/fitbeard/radosgw-assume/compare/v1.4.2...v1.4.3) (2026-06-17)
+
+
+### Miscellaneous
+
+* **deps:** Bump github.com/aws/smithy-go from 1.27.1 to 1.27.2 ([#47](https://github.com/fitbeard/radosgw-assume/issues/47)) ([5059e06](https://github.com/fitbeard/radosgw-assume/commit/5059e067b01a14fb8324bcf0ff16f8fe88e26d7b))
+* **deps:** Bump gopkg.in/ini.v1 from 1.67.2 to 1.67.3 ([#49](https://github.com/fitbeard/radosgw-assume/issues/49)) ([12a1b0c](https://github.com/fitbeard/radosgw-assume/commit/12a1b0c35f66bb9b57659a371fb0dc6ba4476c3b))
+* **deps:** Bump the aws-sdk group with 2 updates ([#44](https://github.com/fitbeard/radosgw-assume/issues/44)) ([48f6af7](https://github.com/fitbeard/radosgw-assume/commit/48f6af7e4df7f04668153be74731969a7b97ae76))
+* **deps:** Bump the aws-sdk group with 2 updates ([#46](https://github.com/fitbeard/radosgw-assume/issues/46)) ([1a42159](https://github.com/fitbeard/radosgw-assume/commit/1a42159ad3fcf821c8f3d3958e3fd304e9bbce01))
+* **deps:** Bump the aws-sdk group with 2 updates ([#48](https://github.com/fitbeard/radosgw-assume/issues/48)) ([cda87a4](https://github.com/fitbeard/radosgw-assume/commit/cda87a4710c6f24a4f120e17fad792b30fa1665f))
+
 ## [1.4.2](https://github.com/fitbeard/radosgw-assume/compare/v1.4.1...v1.4.2) (2026-05-06)
 
 
