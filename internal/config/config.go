@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,34 +11,54 @@ import (
 	"gopkg.in/ini.v1"
 )
 
+type configLoadDependencies struct {
+	stderr      io.Writer
+	userHomeDir func() (string, error)
+	loadINIFile func(string) (*ini.File, error)
+}
+
+func newConfigLoadDependencies() configLoadDependencies {
+	return configLoadDependencies{
+		stderr:      os.Stderr,
+		userHomeDir: os.UserHomeDir,
+		loadINIFile: func(path string) (*ini.File, error) { return ini.Load(path) },
+	}
+}
+
 // LoadAWSConfig loads the AWS configuration file from ~/.aws/config
 func LoadAWSConfig() (*ini.File, error) {
-	homeDir, err := os.UserHomeDir()
+	return loadAWSConfig(newConfigLoadDependencies())
+}
+
+func loadAWSConfig(dependencies configLoadDependencies) (*ini.File, error) {
+	homeDir, err := dependencies.userHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("could not find home directory: %w", err)
 	}
 
 	configPath := filepath.Join(homeDir, ".aws", "config")
-
-	config := ini.Empty()
-
-	if _, err := os.Stat(configPath); err == nil {
-		config, err = ini.Load(configPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load AWS config: %w", err)
-		}
+	config, err := dependencies.loadINIFile(configPath)
+	if err == nil {
+		return config, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return ini.Empty(), nil
 	}
 
-	return config, nil
+	return nil, fmt.Errorf("failed to load AWS config: %w", err)
 }
 
 // LoadAWSConfigOrEmpty loads the AWS config, returning an empty config on error.
 // If verboseMode is true and loading fails, an error message is printed to stderr.
 func LoadAWSConfigOrEmpty(verboseMode bool) *ini.File {
-	awsConfig, err := LoadAWSConfig()
+	return loadAWSConfigOrEmpty(verboseMode, newConfigLoadDependencies())
+}
+
+func loadAWSConfigOrEmpty(verboseMode bool, dependencies configLoadDependencies) *ini.File {
+	awsConfig, err := loadAWSConfig(dependencies)
 	if err != nil {
 		if verboseMode {
-			fmt.Fprintf(os.Stderr, "# Failed to load config file: %v\n", err)
+			_, _ = fmt.Fprintf(dependencies.stderr, "# Failed to load config file: %v\n", err)
 		}
 		return ini.Empty()
 	}
