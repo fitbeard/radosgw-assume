@@ -42,7 +42,7 @@ func AssumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessi
 	// Create STS client with anonymous credentials
 	cfg := aws.Config{
 		Credentials: aws.AnonymousCredentials{},
-		Region: "us-east-1", // Required by AWS SDK, but not used by RadosGW
+		Region:      "us-east-1", // Required by AWS SDK, but not used by RadosGW
 	}
 
 	// Configure HTTP client for SSL verification
@@ -81,7 +81,7 @@ func AssumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessi
 	}
 
 	return &config.AssumeRoleResult{
-		AssumedRoleArn: assumedRoleArn,
+		AssumedRoleArn:  assumedRoleArn,
 		AccessKeyID:     *result.Credentials.AccessKeyId,
 		SecretAccessKey: *result.Credentials.SecretAccessKey,
 		SessionToken:    *result.Credentials.SessionToken,
@@ -104,14 +104,14 @@ func formatSTSError(err error, endpointURL, roleArn string) error {
 				"common causes: OIDC token expired, token claims don't match role trust policy, "+
 				"or identity provider not authorized for this role", roleArn)
 		case "InvalidIdentityToken":
-			return fmt.Errorf("invalid identity token: the OIDC token is malformed or cannot be validated - "+
+			return fmt.Errorf("invalid identity token: the OIDC token is malformed or cannot be validated - " +
 				"ensure the token is properly formatted and the OIDC provider is correctly configured in RadosGW")
 		case "PackedPolicyTooLarge":
 			return fmt.Errorf("policy too large: the session policy exceeds the maximum allowed size")
 		case "MalformedPolicyDocument":
 			return fmt.Errorf("malformed policy: the role '%s' has an invalid trust policy document", roleArn)
 		case "IDPCommunicationError":
-			return fmt.Errorf("IDP communication error: RadosGW could not communicate with the identity provider - "+
+			return fmt.Errorf("IDP communication error: RadosGW could not communicate with the identity provider - " +
 				"check network connectivity and OIDC provider URL configuration")
 		default:
 			// Include both code and message for unknown errors

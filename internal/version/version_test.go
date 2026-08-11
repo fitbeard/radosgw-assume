@@ -19,7 +19,7 @@ func TestGetFullVersion(t *testing.T) {
 	if fullVersion == "" {
 		t.Error("GetFullVersion() returned empty string")
 	}
-	
+
 	// Check that it contains expected components
 	if !strings.Contains(fullVersion, "version") {
 		t.Error("GetFullVersion() should contain 'version'")
@@ -37,12 +37,12 @@ func TestGetUserAgent(t *testing.T) {
 	if userAgent == "" {
 		t.Error("GetUserAgent() returned empty string")
 	}
-	
+
 	// Check that it contains expected components
 	if !strings.Contains(userAgent, "radosgw-assume") {
 		t.Error("GetUserAgent() should contain 'radosgw-assume'")
 	}
-	
+
 	// Should contain version
 	if !strings.Contains(userAgent, "/") {
 		t.Error("GetUserAgent() should contain version separator")
@@ -57,6 +57,6 @@ func TestPrintVersion(t *testing.T) {
 			t.Errorf("PrintVersion() panicked: %v", r)
 		}
 	}()
-	
+
 	PrintVersion()
 }

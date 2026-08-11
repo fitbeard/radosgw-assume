@@ -8,9 +8,9 @@ import (
 
 func TestNewHTTPClient(t *testing.T) {
 	tests := []struct {
-		name           string
-		sslVerify      bool
-		wantTransport  bool
+		name          string
+		sslVerify     bool
+		wantTransport bool
 	}{
 		{
 			name:          "SSL verification enabled",

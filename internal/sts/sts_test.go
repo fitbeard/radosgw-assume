@@ -2,6 +2,8 @@ package sts
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -11,45 +13,56 @@ import (
 )
 
 func TestAssumeRoleWithWebIdentity(t *testing.T) {
-	// Test error cases since we can't test real STS calls easily
-	
-	// Test with invalid endpoint URL
-	_, err := AssumeRoleWithWebIdentity(
-		"invalid-url",
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm() error = %v", err)
+		}
+		if got := r.Form.Get("Action"); got != "AssumeRoleWithWebIdentity" {
+			t.Errorf("Action = %q, want AssumeRoleWithWebIdentity", got)
+		}
+		if got := r.Form.Get("RoleArn"); got != "arn:aws:iam::123456789012:role/TestRole" {
+			t.Errorf("RoleArn = %q, want test role ARN", got)
+		}
+		if got := r.Form.Get("WebIdentityToken"); got != "test-token" {
+			t.Errorf("WebIdentityToken = %q, want test-token", got)
+		}
+
+		w.Header().Set("Content-Type", "text/xml")
+		_, _ = fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>
+<AssumeRoleWithWebIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
+  <AssumeRoleWithWebIdentityResult>
+    <AssumedRoleUser>
+      <Arn>arn:aws:sts::123456789012:assumed-role/TestRole/test-session</Arn>
+      <AssumedRoleId>AROATEST:test-session</AssumedRoleId>
+    </AssumedRoleUser>
+    <Credentials>
+      <AccessKeyId>test-access-key</AccessKeyId>
+      <SecretAccessKey>test-secret-key</SecretAccessKey>
+      <SessionToken>test-session-token</SessionToken>
+      <Expiration>2030-01-01T00:00:00Z</Expiration>
+    </Credentials>
+  </AssumeRoleWithWebIdentityResult>
+  <ResponseMetadata><RequestId>test-request-id</RequestId></ResponseMetadata>
+</AssumeRoleWithWebIdentityResponse>`)
+	}))
+	t.Cleanup(server.Close)
+
+	result, err := AssumeRoleWithWebIdentity(
+		server.URL,
 		"arn:aws:iam::123456789012:role/TestRole",
-		"test-token",
-		"test-session",
-		true, // sslVerify
-		time.Hour,
-	)
-	if err == nil {
-		t.Error("AssumeRoleWithWebIdentity() with invalid URL should return error")
-	}
-	
-	// Test with empty role ARN
-	_, err = AssumeRoleWithWebIdentity(
-		"https://sts.amazonaws.com",
-		"",
 		"test-token",
 		"test-session",
 		true,
 		time.Hour,
 	)
-	if err == nil {
-		t.Error("AssumeRoleWithWebIdentity() with empty role ARN should return error")
+	if err != nil {
+		t.Fatalf("AssumeRoleWithWebIdentity() error = %v", err)
 	}
-	
-	// Test with empty token
-	_, err = AssumeRoleWithWebIdentity(
-		"https://sts.amazonaws.com",
-		"arn:aws:iam::123456789012:role/TestRole",
-		"",
-		"test-session",
-		true,
-		time.Hour,
-	)
-	if err == nil {
-		t.Error("AssumeRoleWithWebIdentity() with empty token should return error")
+	if result.AccessKeyID != "test-access-key" {
+		t.Errorf("AccessKeyID = %q, want test-access-key", result.AccessKeyID)
+	}
+	if result.AssumedRoleArn != "arn:aws:sts::123456789012:assumed-role/TestRole/test-session" {
+		t.Errorf("AssumedRoleArn = %q, want assumed role ARN", result.AssumedRoleArn)
 	}
 }
 
@@ -85,16 +98,16 @@ func TestValidateDuration(t *testing.T) {
 			wantErr:  true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Use the duration package validation
 			err := duration.Validate(tt.duration)
-			
+
 			if tt.wantErr && err == nil {
 				t.Error("expected error but got none")
 			}
-			
+
 			if !tt.wantErr && err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
@@ -112,15 +125,15 @@ func TestAssumeRoleResult(t *testing.T) {
 		ProfileName:     "test-profile",
 		EndpointURL:     "https://test.example.com",
 	}
-	
+
 	if result.AccessKeyID != "AKIAIOSFODNN7EXAMPLE" {
 		t.Errorf("AssumeRoleResult.AccessKeyID = %s, want AKIAIOSFODNN7EXAMPLE", result.AccessKeyID)
 	}
-	
+
 	if result.ProfileName != "test-profile" {
 		t.Errorf("AssumeRoleResult.ProfileName = %s, want test-profile", result.ProfileName)
 	}
-	
+
 	if result.EndpointURL != "https://test.example.com" {
 		t.Errorf("AssumeRoleResult.EndpointURL = %s, want https://test.example.com", result.EndpointURL)
 	}

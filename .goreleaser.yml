@@ -18,6 +18,8 @@ builds:
     flags:
       - -trimpath
     ldflags:
+      - -s
+      - -w
       - -X github.com/fitbeard/radosgw-assume/internal/version.Version={{ .Version }}
       - -X github.com/fitbeard/radosgw-assume/internal/version.GitCommit={{ .ShortCommit }}
       - -X github.com/fitbeard/radosgw-assume/internal/version.BuildDate={{ .Date }}

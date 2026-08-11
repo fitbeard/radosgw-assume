@@ -7,6 +7,24 @@ import (
 	"github.com/fitbeard/radosgw-assume/internal/config"
 )
 
+func TestShellQuote(t *testing.T) {
+	tests := map[string]string{
+		"":                    "''",
+		"plain":               "'plain'",
+		"profile with spaces": "'profile with spaces'",
+		"$(touch unsafe)":     "'$(touch unsafe)'",
+		"single'quote":        "'single'\"'\"'quote'",
+	}
+
+	for input, expected := range tests {
+		t.Run(input, func(t *testing.T) {
+			if result := shellQuote(input); result != expected {
+				t.Errorf("shellQuote(%q) = %q, want %q", input, result, expected)
+			}
+		})
+	}
+}
+
 func TestPrintUsage(t *testing.T) {
 	// Test that PrintUsage doesn't panic
 	defer func() {
@@ -14,7 +32,7 @@ func TestPrintUsage(t *testing.T) {
 			t.Errorf("PrintUsage() panicked: %v", r)
 		}
 	}()
-	
+
 	PrintUsage()
 }
 
@@ -24,7 +42,7 @@ func TestSelectProfileInteractively(t *testing.T) {
 	if err == nil {
 		t.Error("SelectProfileInteractively() with empty slice should return error")
 	}
-	
+
 	// Test error message content
 	if !strings.Contains(err.Error(), "no profiles found") {
 		t.Errorf("Error message should mention 'no profiles found', got: %s", err.Error())
@@ -38,7 +56,7 @@ func TestPrintCredentials(t *testing.T) {
 			t.Errorf("PrintCredentials() panicked: %v", r)
 		}
 	}()
-	
+
 	result := &config.AssumeRoleResult{
 		AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
 		SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
@@ -47,7 +65,7 @@ func TestPrintCredentials(t *testing.T) {
 		ProfileName:     "test-profile",
 		EndpointURL:     "https://test.example.com",
 	}
-	
+
 	PrintCredentials(result)
 }
 
@@ -58,7 +76,7 @@ func TestPrintCredentialsOnly(t *testing.T) {
 			t.Errorf("PrintCredentialsOnly() panicked: %v", r)
 		}
 	}()
-	
+
 	result := &config.AssumeRoleResult{
 		AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
 		SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
@@ -67,7 +85,7 @@ func TestPrintCredentialsOnly(t *testing.T) {
 		ProfileName:     "test",
 		EndpointURL:     "https://test.example.com",
 	}
-	
+
 	PrintCredentialsOnly(result)
 }
 
@@ -78,7 +96,7 @@ func TestPrintCredentials_EnvProfile(t *testing.T) {
 			t.Errorf("PrintCredentials() with env profile panicked: %v", r)
 		}
 	}()
-	
+
 	result := &config.AssumeRoleResult{
 		AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
 		SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
@@ -87,7 +105,7 @@ func TestPrintCredentials_EnvProfile(t *testing.T) {
 		ProfileName:     "env",
 		EndpointURL:     "https://env.example.com",
 	}
-	
+
 	PrintCredentials(result)
 }
 
@@ -98,7 +116,7 @@ func TestPrintCredentialsOnly_EnvProfile(t *testing.T) {
 			t.Errorf("PrintCredentialsOnly() with env profile panicked: %v", r)
 		}
 	}()
-	
+
 	result := &config.AssumeRoleResult{
 		AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
 		SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
@@ -107,6 +125,6 @@ func TestPrintCredentialsOnly_EnvProfile(t *testing.T) {
 		ProfileName:     "env",
 		EndpointURL:     "https://env.example.com",
 	}
-	
+
 	PrintCredentialsOnly(result)
 }

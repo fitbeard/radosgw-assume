@@ -111,8 +111,8 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope string, sslVerify bool
 			authCode = code
 			authState = receivedState
 
-		w.Header().Set("Content-Type", "text/html")
-		_, _ = fmt.Fprintf(w, `
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = fmt.Fprintf(w, `
 			<html lang="en">
 			<head>
 				<meta charset="UTF-8">
