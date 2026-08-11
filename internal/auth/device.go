@@ -10,18 +10,56 @@ import (
 	"time"
 )
 
+type deviceFlowProgress interface {
+	Stop()
+	StopQuiet()
+}
+
+type deviceFlowDependencies struct {
+	stderr io.Writer
+
+	generatePKCE  func(string) (string, string, string, error)
+	newHTTPClient func(bool) *http.Client
+	now           func() time.Time
+	sleep         func(time.Duration)
+	newProgress   func() deviceFlowProgress
+}
+
+func newDeviceFlowDependencies() deviceFlowDependencies {
+	return deviceFlowDependencies{
+		stderr:        os.Stderr,
+		generatePKCE:  GeneratePKCE,
+		newHTTPClient: NewHTTPClient,
+		now:           time.Now,
+		sleep:         time.Sleep,
+		newProgress:   func() deviceFlowProgress { return NewProgressIndicator() },
+	}
+}
+
 // AuthenticateDeviceFlow performs OIDC device flow authentication with PKCE.
 func AuthenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool) (string, error) {
+	return authenticateDeviceFlow(
+		providerURL,
+		clientID,
+		scope,
+		pkceMethod,
+		sslVerify,
+		verboseMode,
+		newDeviceFlowDependencies(),
+	)
+}
+
+func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, dependencies deviceFlowDependencies) (string, error) {
 	tokenEndpoint := fmt.Sprintf("%s/protocol/openid-connect/token", providerURL)
 	deviceAuthEndpoint := fmt.Sprintf("%s/protocol/openid-connect/auth/device", providerURL)
-	codeVerifier, codeChallenge, resolvedPKCEMethod, err := GeneratePKCE(pkceMethod)
+	codeVerifier, codeChallenge, resolvedPKCEMethod, err := dependencies.generatePKCE(pkceMethod)
 	if err != nil {
 		return "", err
 	}
 
 	// Step 1: Start device authorization flow
 	if verboseMode {
-		fmt.Fprintf(os.Stderr, "# Starting device authorization flow...\n")
+		_, _ = fmt.Fprintln(dependencies.stderr, "# Starting device authorization flow...")
 	}
 
 	data := url.Values{}
@@ -30,44 +68,14 @@ func AuthenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 	data.Set("code_challenge", codeChallenge)
 	data.Set("code_challenge_method", resolvedPKCEMethod)
 
-	client := NewHTTPClient(sslVerify)
-
-	resp, err := client.PostForm(deviceAuthEndpoint, data)
+	client := dependencies.newHTTPClient(sslVerify)
+	deviceResponse, err := requestDeviceAuthorization(client, deviceAuthEndpoint, data)
 	if err != nil {
-		return "", fmt.Errorf("device authorization request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("device authorization failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var deviceResponse DeviceAuthResponse
-	if err := json.NewDecoder(resp.Body).Decode(&deviceResponse); err != nil {
-		return "", fmt.Errorf("failed to parse device authorization response: %w", err)
-	}
-
-	if deviceResponse.DeviceCode == "" || deviceResponse.UserCode == "" || deviceResponse.VerificationURI == "" {
-		return "", fmt.Errorf("invalid device authorization response: missing required fields")
+		return "", err
 	}
 
 	// Step 2: Display user instructions
-	fmt.Fprintf(os.Stderr, "#\n")
-	fmt.Fprintf(os.Stderr, "# 🔐 AUTHENTICATION REQUIRED\n")
-	fmt.Fprintf(os.Stderr, "#\n")
-	fmt.Fprintf(os.Stderr, "# Please authenticate using your browser:\n")
-	fmt.Fprintf(os.Stderr, "#\n")
-	fmt.Fprintf(os.Stderr, "# 1. Open this URL: %s\n", deviceResponse.VerificationURI)
-	fmt.Fprintf(os.Stderr, "# 2. Enter this code: %s\n", deviceResponse.UserCode)
-	if deviceResponse.VerificationURIComplete != "" {
-		fmt.Fprintf(os.Stderr, "#\n")
-		fmt.Fprintf(os.Stderr, "#    OR use this direct link: %s\n", deviceResponse.VerificationURIComplete)
-	}
-	fmt.Fprintf(os.Stderr, "#\n")
-	fmt.Fprintf(os.Stderr, "# ⏰ You have 60 seconds to complete authentication\n")
-	fmt.Fprintf(os.Stderr, "#\n")
-	fmt.Fprintf(os.Stderr, "# Waiting for authentication...\n")
+	printDeviceAuthenticationInstructions(dependencies.stderr, deviceResponse)
 
 	// Step 3: Poll for token
 	tokenData := url.Values{}
@@ -81,34 +89,34 @@ func AuthenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 		interval = DefaultPollingInterval
 	}
 
-	startTime := time.Now()
+	startTime := dependencies.now()
 
 	// Progress indication
-	progress := NewProgressIndicator()
+	progress := dependencies.newProgress()
 
-	for time.Since(startTime) < AuthTimeout {
-		time.Sleep(time.Duration(interval) * time.Second)
+	for dependencies.now().Sub(startTime) < AuthTimeout {
+		dependencies.sleep(time.Duration(interval) * time.Second)
 
-		resp, err := client.PostForm(tokenEndpoint, tokenData)
+		response, err := client.PostForm(tokenEndpoint, tokenData)
 		if err != nil {
 			progress.StopQuiet()
 			return "", fmt.Errorf("token request failed: %w", err)
 		}
-		tokenResponse, err := decodeTokenResponseAndClose(resp)
+		tokenResponse, err := decodeTokenResponseAndClose(response)
 		if err != nil {
 			progress.StopQuiet()
 			return "", fmt.Errorf("failed to parse token response: %w", err)
 		}
 
-		if resp.StatusCode == http.StatusOK && tokenResponse.AccessToken != "" {
+		if response.StatusCode == http.StatusOK && tokenResponse.AccessToken != "" {
 			progress.Stop()
 			if verboseMode {
-				fmt.Fprintf(os.Stderr, "# ✓ Authentication successful!\n")
+				_, _ = fmt.Fprintln(dependencies.stderr, "# ✓ Authentication successful!")
 			}
 			return tokenResponse.AccessToken, nil
 		}
 
-		if resp.StatusCode == http.StatusBadRequest {
+		if response.StatusCode == http.StatusBadRequest {
 			switch tokenResponse.Error {
 			case "authorization_pending":
 				continue
@@ -124,6 +132,48 @@ func AuthenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 
 	progress.StopQuiet()
 	return "", fmt.Errorf("authentication timeout after %v", AuthTimeout)
+}
+
+func requestDeviceAuthorization(client *http.Client, endpoint string, data url.Values) (DeviceAuthResponse, error) {
+	response, err := client.PostForm(endpoint, data)
+	if err != nil {
+		return DeviceAuthResponse{}, fmt.Errorf("device authorization request failed: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		return DeviceAuthResponse{}, fmt.Errorf("device authorization failed with status %d: %s", response.StatusCode, string(body))
+	}
+
+	var deviceResponse DeviceAuthResponse
+	if err := json.NewDecoder(response.Body).Decode(&deviceResponse); err != nil {
+		return DeviceAuthResponse{}, fmt.Errorf("failed to parse device authorization response: %w", err)
+	}
+
+	if deviceResponse.DeviceCode == "" || deviceResponse.UserCode == "" || deviceResponse.VerificationURI == "" {
+		return DeviceAuthResponse{}, fmt.Errorf("invalid device authorization response: missing required fields")
+	}
+
+	return deviceResponse, nil
+}
+
+func printDeviceAuthenticationInstructions(stderr io.Writer, response DeviceAuthResponse) {
+	_, _ = fmt.Fprintln(stderr, "#")
+	_, _ = fmt.Fprintln(stderr, "# 🔐 AUTHENTICATION REQUIRED")
+	_, _ = fmt.Fprintln(stderr, "#")
+	_, _ = fmt.Fprintln(stderr, "# Please authenticate using your browser:")
+	_, _ = fmt.Fprintln(stderr, "#")
+	_, _ = fmt.Fprintf(stderr, "# 1. Open this URL: %s\n", response.VerificationURI)
+	_, _ = fmt.Fprintf(stderr, "# 2. Enter this code: %s\n", response.UserCode)
+	if response.VerificationURIComplete != "" {
+		_, _ = fmt.Fprintln(stderr, "#")
+		_, _ = fmt.Fprintf(stderr, "#    OR use this direct link: %s\n", response.VerificationURIComplete)
+	}
+	_, _ = fmt.Fprintln(stderr, "#")
+	_, _ = fmt.Fprintln(stderr, "# ⏰ You have 60 seconds to complete authentication")
+	_, _ = fmt.Fprintln(stderr, "#")
+	_, _ = fmt.Fprintln(stderr, "# Waiting for authentication...")
 }
 
 // decodeTokenResponseAndClose decodes a polling response and always closes its
