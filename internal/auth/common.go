@@ -2,7 +2,9 @@ package auth
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"os"
@@ -19,6 +21,12 @@ const (
 	DefaultPollingInterval = 5
 	// ServerStartTimeout is how long to wait for the callback server to start
 	ServerStartTimeout = 200 * time.Millisecond
+	// DefaultPKCEMethod is used when no PKCE method is configured.
+	DefaultPKCEMethod = "S256"
+	// PKCEMethodPlain sends the verifier as the challenge.
+	PKCEMethodPlain = "plain"
+	// PKCEMethodS256 sends the base64url-encoded SHA-256 verifier digest.
+	PKCEMethodS256 = "S256"
 )
 
 // Callback server ports
@@ -96,6 +104,31 @@ func GenerateRandomString(length int) (string, error) {
 	}
 
 	return string(result), nil
+}
+
+// GeneratePKCE creates a verifier and its matching challenge for the configured
+// method. S256 is the secure default; plain must be selected explicitly.
+func GeneratePKCE(method string) (verifier, challenge, resolvedMethod string, err error) {
+	if method == "" {
+		method = DefaultPKCEMethod
+	}
+
+	verifier, err = GenerateRandomString(96)
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to generate code verifier: %w", err)
+	}
+
+	switch method {
+	case PKCEMethodPlain:
+		challenge = verifier
+	case PKCEMethodS256:
+		hash := sha256.Sum256([]byte(verifier))
+		challenge = base64.RawURLEncoding.EncodeToString(hash[:])
+	default:
+		return "", "", "", fmt.Errorf("unsupported PKCE method %q (supported: %s, %s)", method, PKCEMethodS256, PKCEMethodPlain)
+	}
+
+	return verifier, challenge, method, nil
 }
 
 // FormatOIDCError translates OIDC error codes to user-friendly messages

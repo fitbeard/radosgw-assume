@@ -130,6 +130,9 @@ func ResolveSourceProfile(profileConfig *ProfileConfig, awsConfig *ini.File, ver
 	if profileConfig.RadosGWOIDCScope != "" {
 		mergedConfig.RadosGWOIDCScope = profileConfig.RadosGWOIDCScope
 	}
+	if profileConfig.RadosGWOIDCPKCEMethod != "" {
+		mergedConfig.RadosGWOIDCPKCEMethod = profileConfig.RadosGWOIDCPKCEMethod
+	}
 	if profileConfig.RadosGWSSLVerify != "" {
 		mergedConfig.RadosGWSSLVerify = profileConfig.RadosGWSSLVerify
 	}
@@ -198,6 +201,9 @@ func GetProfileConfigFromEnv() (*ProfileConfig, error) {
 	}
 	if scope := os.Getenv("RADOSGW_OIDC_SCOPE"); scope != "" {
 		profileConfig.RadosGWOIDCScope = scope
+	}
+	if pkceMethod := os.Getenv("RADOSGW_OIDC_PKCE_METHOD"); pkceMethod != "" {
+		profileConfig.RadosGWOIDCPKCEMethod = pkceMethod
 	}
 	if sslVerify := os.Getenv("RADOSGW_SSL_VERIFY"); sslVerify != "" {
 		profileConfig.RadosGWSSLVerify = sslVerify

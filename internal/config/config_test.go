@@ -161,11 +161,13 @@ endpoint_url = https://base.example.com
 radosgw_oidc_provider = https://base-oidc.example.com
 radosgw_oidc_client_id = base-client
 radosgw_oidc_scope = openid
+radosgw_oidc_pkce_method = S256
 
 [profile derived-profile]
 source_profile = base-profile
 role_arn = arn:aws:iam::123456789012:role/DerivedRole
 radosgw_oidc_scope = openid custom
+radosgw_oidc_pkce_method = plain
 `
 
 	config, err := ini.Load([]byte(configContent))
@@ -198,6 +200,9 @@ radosgw_oidc_scope = openid custom
 	if resolvedConfig.RadosGWOIDCScope != "openid custom" {
 		t.Errorf("ResolveSourceProfile() oidc_scope = %v, want %v", resolvedConfig.RadosGWOIDCScope, "openid custom")
 	}
+	if resolvedConfig.RadosGWOIDCPKCEMethod != "plain" {
+		t.Errorf("ResolveSourceProfile() oidc_pkce_method = %v, want plain", resolvedConfig.RadosGWOIDCPKCEMethod)
+	}
 }
 
 func TestGetProfileConfigFromEnv(t *testing.T) {
@@ -206,6 +211,7 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 	originalProvider := os.Getenv("RADOSGW_OIDC_PROVIDER")
 	originalClientID := os.Getenv("RADOSGW_OIDC_CLIENT_ID")
 	originalAuthType := os.Getenv("RADOSGW_OIDC_AUTH_TYPE")
+	originalPKCEMethod := os.Getenv("RADOSGW_OIDC_PKCE_METHOD")
 	originalSessionName := os.Getenv("RADOSGW_ROLE_SESSION_NAME")
 
 	defer func() {
@@ -214,6 +220,7 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 		_ = os.Setenv("RADOSGW_OIDC_PROVIDER", originalProvider)
 		_ = os.Setenv("RADOSGW_OIDC_CLIENT_ID", originalClientID)
 		_ = os.Setenv("RADOSGW_OIDC_AUTH_TYPE", originalAuthType)
+		_ = os.Setenv("RADOSGW_OIDC_PKCE_METHOD", originalPKCEMethod)
 		_ = os.Setenv("RADOSGW_ROLE_SESSION_NAME", originalSessionName)
 	}()
 
@@ -222,6 +229,7 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 		envVars         map[string]string
 		wantErr         bool
 		wantURL         string
+		wantPKCEMethod  string
 		wantSessionName string
 	}{
 		{
@@ -242,6 +250,17 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 			},
 			wantErr: false,
 			wantURL: "https://test.example.com",
+		},
+		{
+			name: "with plain PKCE",
+			envVars: map[string]string{
+				"AWS_ENDPOINT_URL":         "https://test.example.com",
+				"RADOSGW_OIDC_PROVIDER":    "https://oidc.example.com",
+				"RADOSGW_OIDC_CLIENT_ID":   "test-client",
+				"RADOSGW_OIDC_PKCE_METHOD": "plain",
+			},
+			wantURL:        "https://test.example.com",
+			wantPKCEMethod: "plain",
 		},
 		{
 			name: "with custom session name",
@@ -291,6 +310,7 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 			_ = os.Unsetenv("RADOSGW_OIDC_PROVIDER")
 			_ = os.Unsetenv("RADOSGW_OIDC_CLIENT_ID")
 			_ = os.Unsetenv("RADOSGW_OIDC_AUTH_TYPE")
+			_ = os.Unsetenv("RADOSGW_OIDC_PKCE_METHOD")
 			_ = os.Unsetenv("RADOSGW_ROLE_SESSION_NAME")
 
 			// Set test env vars
@@ -314,6 +334,9 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 
 			if profileConfig.EndpointURL != tt.wantURL {
 				t.Errorf("GetProfileConfigFromEnv() endpoint = %v, want %v", profileConfig.EndpointURL, tt.wantURL)
+			}
+			if profileConfig.RadosGWOIDCPKCEMethod != tt.wantPKCEMethod {
+				t.Errorf("GetProfileConfigFromEnv() pkce_method = %v, want %v", profileConfig.RadosGWOIDCPKCEMethod, tt.wantPKCEMethod)
 			}
 
 			if tt.wantSessionName != "" && profileConfig.RoleSessionName != tt.wantSessionName {

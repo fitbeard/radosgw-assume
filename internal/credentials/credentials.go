@@ -103,7 +103,7 @@ func GetCredentials(profileName string, profileConfig *config.ProfileConfig, aws
 		if verboseMode {
 			fmt.Fprintf(os.Stderr, "# Starting device authentication flow\n")
 		}
-		accessToken, err = auth.AuthenticateDeviceFlow(sourceConfig.RadosGWOIDCProvider, sourceConfig.RadosGWOIDCClientID, scope, sslVerify, verboseMode)
+		accessToken, err = auth.AuthenticateDeviceFlow(sourceConfig.RadosGWOIDCProvider, sourceConfig.RadosGWOIDCClientID, scope, sourceConfig.RadosGWOIDCPKCEMethod, sslVerify, verboseMode)
 		if err != nil {
 			return nil, fmt.Errorf("device authentication failed: %w", err)
 		}
@@ -112,7 +112,7 @@ func GetCredentials(profileName string, profileConfig *config.ProfileConfig, aws
 		if verboseMode {
 			fmt.Fprintf(os.Stderr, "# Starting browser authentication flow\n")
 		}
-		accessToken, err = auth.AuthenticateBrowserFlow(sourceConfig.RadosGWOIDCProvider, sourceConfig.RadosGWOIDCClientID, scope, sslVerify, verboseMode)
+		accessToken, err = auth.AuthenticateBrowserFlow(sourceConfig.RadosGWOIDCProvider, sourceConfig.RadosGWOIDCClientID, scope, sourceConfig.RadosGWOIDCPKCEMethod, sslVerify, verboseMode)
 		if err != nil {
 			return nil, fmt.Errorf("browser authentication failed: %w", err)
 		}

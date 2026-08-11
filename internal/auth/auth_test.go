@@ -1,9 +1,14 @@
 package auth
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -68,46 +73,151 @@ func TestTokenResponse_WithError(t *testing.T) {
 }
 
 func TestAuthenticateDeviceFlow(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/protocol/openid-connect/auth/device":
-			if err := r.ParseForm(); err != nil {
-				t.Errorf("ParseForm() error = %v", err)
-			}
-			if got := r.Form.Get("client_id"); got != "test-client" {
-				t.Errorf("client_id = %q, want test-client", got)
-			}
-			if got := r.Form.Get("scope"); got != "openid profile" {
-				t.Errorf("scope = %q, want openid profile", got)
-			}
-			_ = json.NewEncoder(w).Encode(DeviceAuthResponse{
-				DeviceCode:      "test-device-code",
-				UserCode:        "TEST-CODE",
-				VerificationURI: serverURL(r),
-				ExpiresIn:       600,
-				Interval:        -1,
-			})
-		case "/protocol/openid-connect/token":
-			if err := r.ParseForm(); err != nil {
-				t.Errorf("ParseForm() error = %v", err)
-			}
-			if got := r.Form.Get("device_code"); got != "test-device-code" {
-				t.Errorf("device_code = %q, want test-device-code", got)
-			}
-			_ = json.NewEncoder(w).Encode(TokenResponse{AccessToken: "test-access-token"})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(server.Close)
+	for _, pkceMethod := range []string{PKCEMethodS256, PKCEMethodPlain} {
+		t.Run(pkceMethod, func(t *testing.T) {
+			var tokenRequests atomic.Int32
+			var codeChallenge atomic.Value
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/protocol/openid-connect/auth/device":
+					if err := r.ParseForm(); err != nil {
+						t.Errorf("ParseForm() error = %v", err)
+					}
+					if got := r.Form.Get("client_id"); got != "test-client" {
+						t.Errorf("client_id = %q, want test-client", got)
+					}
+					if got := r.Form.Get("scope"); got != "openid profile" {
+						t.Errorf("scope = %q, want openid profile", got)
+					}
+					if got := r.Form.Get("code_challenge_method"); got != pkceMethod {
+						t.Errorf("code_challenge_method = %q, want %q", got, pkceMethod)
+					}
+					challenge := r.Form.Get("code_challenge")
+					if challenge == "" {
+						t.Error("code_challenge is empty")
+					}
+					codeChallenge.Store(challenge)
+					_ = json.NewEncoder(w).Encode(DeviceAuthResponse{
+						DeviceCode:      "test-device-code",
+						UserCode:        "TEST-CODE",
+						VerificationURI: serverURL(r),
+						ExpiresIn:       600,
+						Interval:        -1,
+					})
+				case "/protocol/openid-connect/token":
+					requestNumber := tokenRequests.Add(1)
+					if err := r.ParseForm(); err != nil {
+						t.Errorf("ParseForm() error = %v", err)
+					}
+					if got := r.Form.Get("device_code"); got != "test-device-code" {
+						t.Errorf("device_code = %q, want test-device-code", got)
+					}
 
-	token, err := AuthenticateDeviceFlow(server.URL, "test-client", "openid profile", true, false)
-	if err != nil {
-		t.Fatalf("AuthenticateDeviceFlow() error = %v", err)
+					verifier := r.Form.Get("code_verifier")
+					wantChallenge := verifier
+					if pkceMethod == PKCEMethodS256 {
+						hash := sha256.Sum256([]byte(verifier))
+						wantChallenge = base64.RawURLEncoding.EncodeToString(hash[:])
+					}
+					if got := codeChallenge.Load(); got != wantChallenge {
+						t.Errorf("challenge for verifier = %q, want %q", got, wantChallenge)
+					}
+
+					if requestNumber == 1 {
+						w.WriteHeader(http.StatusBadRequest)
+						_ = json.NewEncoder(w).Encode(TokenResponse{Error: "authorization_pending"})
+						return
+					}
+					_ = json.NewEncoder(w).Encode(TokenResponse{AccessToken: "test-access-token"})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			token, err := AuthenticateDeviceFlow(server.URL, "test-client", "openid profile", pkceMethod, true, false)
+			if err != nil {
+				t.Fatalf("AuthenticateDeviceFlow() error = %v", err)
+			}
+			if token != "test-access-token" {
+				t.Errorf("token = %q, want test-access-token", token)
+			}
+			if got := tokenRequests.Load(); got != 2 {
+				t.Errorf("token requests = %d, want 2", got)
+			}
+		})
 	}
-	if token != "test-access-token" {
-		t.Errorf("token = %q, want test-access-token", token)
+}
+
+func TestGeneratePKCE(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		method     string
+		wantMethod string
+	}{
+		{name: "default", wantMethod: PKCEMethodS256},
+		{name: "S256", method: PKCEMethodS256, wantMethod: PKCEMethodS256},
+		{name: "plain", method: PKCEMethodPlain, wantMethod: PKCEMethodPlain},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			verifier, challenge, method, err := GeneratePKCE(tt.method)
+			if err != nil {
+				t.Fatalf("GeneratePKCE() error = %v", err)
+			}
+			if method != tt.wantMethod {
+				t.Errorf("method = %q, want %q", method, tt.wantMethod)
+			}
+
+			wantChallenge := verifier
+			if method == PKCEMethodS256 {
+				hash := sha256.Sum256([]byte(verifier))
+				wantChallenge = base64.RawURLEncoding.EncodeToString(hash[:])
+			}
+			if challenge != wantChallenge {
+				t.Errorf("challenge = %q, want %q", challenge, wantChallenge)
+			}
+		})
 	}
+
+	if _, _, _, err := GeneratePKCE("invalid"); err == nil {
+		t.Error("GeneratePKCE() with invalid method expected an error")
+	}
+}
+
+func TestDecodeTokenResponseAndClose(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr bool
+	}{
+		{name: "valid response", body: `{"access_token":"test-token"}`},
+		{name: "invalid response", body: `{`, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := &trackingReadCloser{Reader: strings.NewReader(tt.body)}
+			response := &http.Response{Body: body}
+
+			_, err := decodeTokenResponseAndClose(response)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("decodeTokenResponseAndClose() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !body.closed {
+				t.Error("response body was not closed")
+			}
+		})
+	}
+}
+
+type trackingReadCloser struct {
+	io.Reader
+	closed bool
+}
+
+func (body *trackingReadCloser) Close() error {
+	body.closed = true
+	return nil
 }
 
 func serverURL(r *http.Request) string {

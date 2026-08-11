@@ -45,6 +45,7 @@ func PrintUsage() {
 	fmt.Println("  RADOSGW_OIDC_AUTH_TYPE     - Auth type: device|browser|token (optional, default: device)")
 	fmt.Println("  RADOSGW_OIDC_TOKEN         - Pre-existing OIDC token (required for token auth type)")
 	fmt.Println("  RADOSGW_OIDC_SCOPE         - OIDC scope (optional, default: openid, ignored for token auth)")
+	fmt.Println("  RADOSGW_OIDC_PKCE_METHOD   - PKCE method: S256|plain (optional, default: S256)")
 	fmt.Println("  RADOSGW_SSL_VERIFY         - SSL verification: true|false (optional, default: true)")
 	fmt.Println("")
 	fmt.Println("Configuration:")
