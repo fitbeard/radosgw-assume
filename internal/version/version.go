@@ -2,6 +2,8 @@ package version
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"runtime"
 )
 
@@ -31,9 +33,14 @@ func GetUserAgent() string {
 
 // PrintVersion prints the full version information
 func PrintVersion() {
-	fmt.Printf("Version %s\n", Version)
-	fmt.Printf("Git commit: %s\n", GitCommit)
-	fmt.Printf("Build date: %s\n", BuildDate)
-	fmt.Printf("Go version: %s\n", GoVersion)
-	fmt.Printf("Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	FprintVersion(os.Stdout)
+}
+
+// FprintVersion writes detailed version information to w.
+func FprintVersion(w io.Writer) {
+	fmt.Fprintf(w, "Version %s\n", Version)
+	fmt.Fprintf(w, "Git commit: %s\n", GitCommit)
+	fmt.Fprintf(w, "Build date: %s\n", BuildDate)
+	fmt.Fprintf(w, "Go version: %s\n", GoVersion)
+	fmt.Fprintf(w, "Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 }
