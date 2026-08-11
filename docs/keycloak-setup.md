@@ -22,7 +22,12 @@ Access Type: public
 Standard Flow: true
 Direct Access Grants: false
 OAuth 2.0 Device Authorization Grant: true
+Proof Key for Code Exchange Code Challenge Method: S256
 ```
+
+`radosgw-assume` uses `S256` by default. If the Keycloak client is configured
+for `plain`, set `radosgw_oidc_pkce_method = plain` in the AWS profile (or
+`RADOSGW_OIDC_PKCE_METHOD=plain` when using environment variables).
 
 ## RadosGW Integration
 

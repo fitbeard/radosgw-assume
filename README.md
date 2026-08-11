@@ -17,7 +17,7 @@ A modern CLI tool that enables seamless AWS role assumption for **Ceph RadosGW**
 Ceph RadosGW supports OIDC for authentication, but the integration workflow is complex:
 
 - Multiple authentication flows (device, browser, token-based)
-- PKCE security requirements for browser flows
+- PKCE security requirements for device and browser flows
 - Complex STS AssumeRoleWithWebIdentity calls
 - Credential formatting for AWS SDK compatibility
 - Session duration management
@@ -69,6 +69,7 @@ Ceph RadosGW supports OIDC for authentication, but the integration workflow is c
 1. **Device Flow** (Default)
    - Perfect for headless environments
    - User completes authorization on separate device
+   - PKCE-protected device authorization and token polling
    - RFC 8628 compliant
 
 2. **Browser Flow with PKCE**
@@ -151,6 +152,7 @@ Environment Variables (when using -e/--env):
   RADOSGW_OIDC_AUTH_TYPE     - Auth type: device|browser|token (optional, default: device)
   RADOSGW_OIDC_TOKEN         - Pre-existing OIDC token (required for token auth type)
   RADOSGW_OIDC_SCOPE         - OIDC scope (optional, default: openid, ignored for token auth)
+  RADOSGW_OIDC_PKCE_METHOD   - PKCE method: S256|plain (optional, default: S256)
   RADOSGW_SSL_VERIFY         - SSL verification: true|false (optional, default: true)
 
 Configuration:
@@ -162,7 +164,7 @@ Configuration:
 ### 🔐 **Security First**
 
 - No long-lived credentials stored
-- PKCE for browser flows
+- PKCE for device and browser flows
 - Secure token handling
 - Automatic credential expiration
 
@@ -204,11 +206,12 @@ Add RadosGW profiles to your `~/.aws/config`:
 
 ```ini
 [profile base]
-radosgw_oidc_provider  = https://keycloak.example.com/realms/myrealm
-radosgw_oidc_client_id = rgw-client-public
-radosgw_oidc_auth_type = device
-radosgw_oidc_scope     = openid offline_access
-radosgw_ssl_verify     = false
+radosgw_oidc_provider    = https://keycloak.example.com/realms/myrealm
+radosgw_oidc_client_id   = rgw-client-public
+radosgw_oidc_auth_type   = device
+radosgw_oidc_scope       = openid offline_access
+radosgw_oidc_pkce_method = S256
+radosgw_ssl_verify       = false
 
 [profile assume-device]
 source_profile    = base
@@ -225,13 +228,14 @@ radosgw_oidc_auth_type = browser
 radosgw_oidc_scope     = openid
 
 [profile full]
-endpoint_url           = https://storage.example.com
-radosgw_oidc_provider  = https://keycloak.example.com/realms/myrealm
-radosgw_oidc_client_id = rgw-client-public
-radosgw_oidc_auth_type = device
-radosgw_ssl_verify     = false
-role_arn               = arn:aws:iam:::role/examples/KeycloakExample
-role_session_name      = my-custom-session
+endpoint_url             = https://storage.example.com
+radosgw_oidc_provider    = https://keycloak.example.com/realms/myrealm
+radosgw_oidc_client_id   = rgw-client-public
+radosgw_oidc_auth_type   = device
+radosgw_oidc_pkce_method = S256
+radosgw_ssl_verify       = false
+role_arn                 = arn:aws:iam:::role/examples/KeycloakExample
+role_session_name        = my-custom-session
 ```
 
 ## RadosGW and OIDC Provider Setup
@@ -253,6 +257,7 @@ export RADOSGW_ROLE_ARN="arn:aws:iam:::role/examples/KeycloakExample"
 export RADOSGW_ROLE_SESSION_NAME="my-session" # Optional
 export RADOSGW_OIDC_AUTH_TYPE="device"        # device|browser|token
 export RADOSGW_OIDC_SCOPE="openid"            # Optional
+export RADOSGW_OIDC_PKCE_METHOD="S256"        # Optional: S256 (default) or plain
 export RADOSGW_SSL_VERIFY="true"              # Optional
 ```
 

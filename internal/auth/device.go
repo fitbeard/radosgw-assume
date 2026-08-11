@@ -10,10 +10,14 @@ import (
 	"time"
 )
 
-// AuthenticateDeviceFlow performs OIDC device flow authentication
-func AuthenticateDeviceFlow(providerURL, clientID, scope string, sslVerify bool, verboseMode bool) (string, error) {
+// AuthenticateDeviceFlow performs OIDC device flow authentication with PKCE.
+func AuthenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool) (string, error) {
 	tokenEndpoint := fmt.Sprintf("%s/protocol/openid-connect/token", providerURL)
 	deviceAuthEndpoint := fmt.Sprintf("%s/protocol/openid-connect/auth/device", providerURL)
+	codeVerifier, codeChallenge, resolvedPKCEMethod, err := GeneratePKCE(pkceMethod)
+	if err != nil {
+		return "", err
+	}
 
 	// Step 1: Start device authorization flow
 	if verboseMode {
@@ -23,6 +27,8 @@ func AuthenticateDeviceFlow(providerURL, clientID, scope string, sslVerify bool,
 	data := url.Values{}
 	data.Set("client_id", clientID)
 	data.Set("scope", scope)
+	data.Set("code_challenge", codeChallenge)
+	data.Set("code_challenge_method", resolvedPKCEMethod)
 
 	client := NewHTTPClient(sslVerify)
 
@@ -68,6 +74,7 @@ func AuthenticateDeviceFlow(providerURL, clientID, scope string, sslVerify bool,
 	tokenData.Set("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
 	tokenData.Set("client_id", clientID)
 	tokenData.Set("device_code", deviceResponse.DeviceCode)
+	tokenData.Set("code_verifier", codeVerifier)
 
 	interval := deviceResponse.Interval
 	if interval == 0 {
@@ -87,10 +94,8 @@ func AuthenticateDeviceFlow(providerURL, clientID, scope string, sslVerify bool,
 			progress.StopQuiet()
 			return "", fmt.Errorf("token request failed: %w", err)
 		}
-		defer func() { _ = resp.Body.Close() }()
-
-		var tokenResponse TokenResponse
-		if err := json.NewDecoder(resp.Body).Decode(&tokenResponse); err != nil {
+		tokenResponse, err := decodeTokenResponseAndClose(resp)
+		if err != nil {
 			progress.StopQuiet()
 			return "", fmt.Errorf("failed to parse token response: %w", err)
 		}
@@ -119,4 +124,17 @@ func AuthenticateDeviceFlow(providerURL, clientID, scope string, sslVerify bool,
 
 	progress.StopQuiet()
 	return "", fmt.Errorf("authentication timeout after %v", AuthTimeout)
+}
+
+// decodeTokenResponseAndClose decodes a polling response and always closes its
+// body before returning so the polling loop never accumulates open responses.
+func decodeTokenResponseAndClose(resp *http.Response) (TokenResponse, error) {
+	defer func() { _ = resp.Body.Close() }()
+
+	var tokenResponse TokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResponse); err != nil {
+		return TokenResponse{}, err
+	}
+
+	return tokenResponse, nil
 }

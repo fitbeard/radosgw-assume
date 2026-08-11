@@ -171,8 +171,15 @@ func TestGetCredentials_SSLVerifyParsing(t *testing.T) {
 
 func TestGetCredentials_DefaultAuthType(t *testing.T) {
 	var requestedPath string
+	var requestedPKCEMethod string
+	var requestedCodeChallenge string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestedPath = r.URL.Path
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm() error = %v", err)
+		}
+		requestedPKCEMethod = r.Form.Get("code_challenge_method")
+		requestedCodeChallenge = r.Form.Get("code_challenge")
 		http.Error(w, "expected test response", http.StatusBadRequest)
 	}))
 	t.Cleanup(server.Close)
@@ -192,6 +199,30 @@ func TestGetCredentials_DefaultAuthType(t *testing.T) {
 	}
 	if requestedPath != "/protocol/openid-connect/auth/device" {
 		t.Errorf("requested path = %q, want device authorization endpoint", requestedPath)
+	}
+	if requestedPKCEMethod != "S256" {
+		t.Errorf("code_challenge_method = %q, want S256", requestedPKCEMethod)
+	}
+	if requestedCodeChallenge == "" {
+		t.Error("code_challenge is empty")
+	}
+}
+
+func TestGetCredentials_InvalidPKCEMethod(t *testing.T) {
+	profileConfig := &config.ProfileConfig{
+		EndpointURL:           "https://storage.example.com",
+		RoleArn:               "arn:aws:iam::123456789012:role/TestRole",
+		RadosGWOIDCProvider:   "https://oidc.example.com",
+		RadosGWOIDCClientID:   "test-client",
+		RadosGWOIDCPKCEMethod: "invalid",
+	}
+
+	_, err := GetCredentials("test-profile", profileConfig, ini.Empty(), false, time.Hour)
+	if err == nil {
+		t.Fatal("GetCredentials() expected an error")
+	}
+	if !strings.Contains(err.Error(), "unsupported PKCE method") {
+		t.Errorf("GetCredentials() error = %v, want unsupported PKCE method", err)
 	}
 }
 

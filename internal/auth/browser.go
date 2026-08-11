@@ -2,8 +2,6 @@ package auth
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,8 +14,8 @@ import (
 	"time"
 )
 
-// AuthenticateBrowserFlow performs OIDC authorization code flow with PKCE
-func AuthenticateBrowserFlow(providerURL, clientID, scope string, sslVerify bool, verboseMode bool) (string, error) {
+// AuthenticateBrowserFlow performs OIDC authorization code flow with PKCE.
+func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool) (string, error) {
 	tokenEndpoint := fmt.Sprintf("%s/protocol/openid-connect/token", providerURL)
 	authEndpoint := fmt.Sprintf("%s/protocol/openid-connect/auth", providerURL)
 
@@ -46,13 +44,10 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope string, sslVerify bool
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
-	codeVerifier, err := GenerateRandomString(96)
+	codeVerifier, codeChallenge, resolvedPKCEMethod, err := GeneratePKCE(pkceMethod)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate code verifier: %w", err)
+		return "", err
 	}
-
-	hash := sha256.Sum256([]byte(codeVerifier))
-	codeChallenge := base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString(hash[:])
 
 	// Set up callback server
 	authCode := ""
@@ -171,7 +166,7 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope string, sslVerify bool
 	authParams.Set("scope", scope)
 	authParams.Set("state", state)
 	authParams.Set("code_challenge", codeChallenge)
-	authParams.Set("code_challenge_method", "S256")
+	authParams.Set("code_challenge_method", resolvedPKCEMethod)
 
 	authURL := authEndpoint + "?" + authParams.Encode()
 
