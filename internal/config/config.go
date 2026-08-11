@@ -127,6 +127,9 @@ func ResolveSourceProfile(profileConfig *ProfileConfig, awsConfig *ini.File, ver
 	if profileConfig.RadosGWOIDCAuthType != "" {
 		mergedConfig.RadosGWOIDCAuthType = profileConfig.RadosGWOIDCAuthType
 	}
+	if profileConfig.RadosGWOIDCScope != "" {
+		mergedConfig.RadosGWOIDCScope = profileConfig.RadosGWOIDCScope
+	}
 	if profileConfig.RadosGWSSLVerify != "" {
 		mergedConfig.RadosGWSSLVerify = profileConfig.RadosGWSSLVerify
 	}

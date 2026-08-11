@@ -160,10 +160,12 @@ func TestResolveSourceProfile(t *testing.T) {
 endpoint_url = https://base.example.com
 radosgw_oidc_provider = https://base-oidc.example.com
 radosgw_oidc_client_id = base-client
+radosgw_oidc_scope = openid
 
 [profile derived-profile]
 source_profile = base-profile
 role_arn = arn:aws:iam::123456789012:role/DerivedRole
+radosgw_oidc_scope = openid custom
 `
 
 	config, err := ini.Load([]byte(configContent))
@@ -192,6 +194,9 @@ role_arn = arn:aws:iam::123456789012:role/DerivedRole
 	}
 	if resolvedConfig.RadosGWOIDCProvider != "https://base-oidc.example.com" {
 		t.Errorf("ResolveSourceProfile() oidc_provider = %v, want %v", resolvedConfig.RadosGWOIDCProvider, "https://base-oidc.example.com")
+	}
+	if resolvedConfig.RadosGWOIDCScope != "openid custom" {
+		t.Errorf("ResolveSourceProfile() oidc_scope = %v, want %v", resolvedConfig.RadosGWOIDCScope, "openid custom")
 	}
 }
 

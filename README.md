@@ -86,12 +86,12 @@ Ceph RadosGW supports OIDC for authentication, but the integration workflow is c
 **radosgw-assume** provides credentials in shell export format:
 
 ```bash
-export AWS_ACCESS_KEY_ID=AKIAI...
-export AWS_SECRET_ACCESS_KEY=wJalr...
-export AWS_SESSION_TOKEN=AQoD...
-export AWS_PROFILE=myprofile
-export AWS_CREDENTIAL_EXPIRATION=2024-12-11T15:30:00Z
-export AWS_SESSION_EXPIRATION=2024-12-11T15:30:00Z
+export AWS_ACCESS_KEY_ID='AKIAI...'
+export AWS_SECRET_ACCESS_KEY='wJalr...'
+export AWS_SESSION_TOKEN='AQoD...'
+export AWS_PROFILE='myprofile'
+export AWS_CREDENTIAL_EXPIRATION='2024-12-11T15:30:00Z'
+export AWS_SESSION_EXPIRATION='2024-12-11T15:30:00Z'
 ```
 
 ## Installation

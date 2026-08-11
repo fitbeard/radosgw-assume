@@ -41,7 +41,7 @@ func PrintUsage() {
 	fmt.Println("  RADOSGW_OIDC_CLIENT_ID     - OIDC client ID (required, except for token auth)")
 	fmt.Println("  AWS_ENDPOINT_URL           - RadosGW endpoint URL (required)")
 	fmt.Println("  RADOSGW_ROLE_ARN           - Role ARN to assume (required)")
-    fmt.Println("  RADOSGW_ROLE_SESSION_NAME  - Role session name (optional, default: radosgw-assume-TIMESTAMP)")
+	fmt.Println("  RADOSGW_ROLE_SESSION_NAME  - Role session name (optional, default: radosgw-assume-TIMESTAMP)")
 	fmt.Println("  RADOSGW_OIDC_AUTH_TYPE     - Auth type: device|browser|token (optional, default: device)")
 	fmt.Println("  RADOSGW_OIDC_TOKEN         - Pre-existing OIDC token (required for token auth type)")
 	fmt.Println("  RADOSGW_OIDC_SCOPE         - OIDC scope (optional, default: openid, ignored for token auth)")

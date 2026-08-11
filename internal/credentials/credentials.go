@@ -15,11 +15,6 @@ import (
 
 // GetCredentials orchestrates the authentication and role assumption process
 func GetCredentials(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
-	// Parse endpoint_url
-	if profileConfig.EndpointURL == "" {
-		return nil, fmt.Errorf("profile '%s': missing required 'endpoint_url'. Add endpoint_url to your profile configuration", profileName)
-	}
-
 	var sourceConfig *config.ProfileConfig
 	var roleArn string
 	var err error
@@ -48,6 +43,10 @@ func GetCredentials(profileName string, profileConfig *config.ProfileConfig, aws
 		return nil, fmt.Errorf("profile '%s': missing required 'role_arn'. Specify the IAM role ARN to assume", profileName)
 	}
 
+	if sourceConfig.EndpointURL == "" {
+		return nil, fmt.Errorf("profile '%s': missing required 'endpoint_url'. Add endpoint_url to your profile or its source profile", profileName)
+	}
+
 	// Determine auth type first
 	authType := sourceConfig.RadosGWOIDCAuthType
 	if authType == "" {
@@ -72,7 +71,7 @@ func GetCredentials(profileName string, profileConfig *config.ProfileConfig, aws
 
 	if verboseMode {
 		fmt.Fprintf(os.Stderr, "# Using profile: %s\n", profileName)
-		fmt.Fprintf(os.Stderr, "# RadosGW endpoint: %s\n", profileConfig.EndpointURL)
+		fmt.Fprintf(os.Stderr, "# RadosGW endpoint: %s\n", sourceConfig.EndpointURL)
 		if authType != "token" {
 			fmt.Fprintf(os.Stderr, "# OIDC provider: %s\n", sourceConfig.RadosGWOIDCProvider)
 		}
@@ -133,7 +132,7 @@ func GetCredentials(profileName string, profileConfig *config.ProfileConfig, aws
 	}
 
 	// Use STS to assume the role
-	result, err := sts.AssumeRoleWithWebIdentity(profileConfig.EndpointURL, roleArn, accessToken, roleSessionName, sslVerify, sessionDuration)
+	result, err := sts.AssumeRoleWithWebIdentity(sourceConfig.EndpointURL, roleArn, accessToken, roleSessionName, sslVerify, sessionDuration)
 	if err != nil {
 		return nil, err // Error already has context from sts.formatSTSError
 	}

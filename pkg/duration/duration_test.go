@@ -54,29 +54,29 @@ func TestParse(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "negative duration",
-			input:   "-30m",
+			name:     "negative duration",
+			input:    "-30m",
 			expected: -30 * time.Minute,
-			wantErr: false,
+			wantErr:  false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := Parse(tt.input)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("Parse() expected error but got none")
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("Parse() unexpected error: %v", err)
 				return
 			}
-			
+
 			if result != tt.expected {
 				t.Errorf("Parse() = %v, want %v", result, tt.expected)
 			}
@@ -130,11 +130,11 @@ func TestValidate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := Validate(tt.duration)
-			
+
 			if tt.wantErr && err == nil {
 				t.Errorf("Validate() expected error but got none")
 			}
-			
+
 			if !tt.wantErr && err != nil {
 				t.Errorf("Validate() unexpected error: %v", err)
 			}

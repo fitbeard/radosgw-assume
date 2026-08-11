@@ -3,21 +3,27 @@ package ui
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/fitbeard/radosgw-assume/internal/config"
 )
 
+// shellQuote returns a value that can be safely evaluated by a POSIX shell.
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
 // printCredentialExports prints the credential export statements
 func printCredentialExports(result *config.AssumeRoleResult) {
-	fmt.Printf("export AWS_ACCESS_KEY_ID=%s\n", result.AccessKeyID)
-	fmt.Printf("export AWS_SECRET_ACCESS_KEY=%s\n", result.SecretAccessKey)
-	fmt.Printf("export AWS_SESSION_TOKEN='%s'\n", result.SessionToken)
+	fmt.Printf("export AWS_ACCESS_KEY_ID=%s\n", shellQuote(result.AccessKeyID))
+	fmt.Printf("export AWS_SECRET_ACCESS_KEY=%s\n", shellQuote(result.SecretAccessKey))
+	fmt.Printf("export AWS_SESSION_TOKEN=%s\n", shellQuote(result.SessionToken))
 	// Don't export fake AWS_PROFILE when using environment variables
 	if result.ProfileName != "env" {
-		fmt.Printf("export AWS_PROFILE=%s\n", result.ProfileName)
+		fmt.Printf("export AWS_PROFILE=%s\n", shellQuote(result.ProfileName))
 	}
-	fmt.Printf("export AWS_CREDENTIAL_EXPIRATION=%s\n", result.Expiration)
-	fmt.Printf("export AWS_SESSION_EXPIRATION=%s\n", result.Expiration)
+	fmt.Printf("export AWS_CREDENTIAL_EXPIRATION=%s\n", shellQuote(result.Expiration))
+	fmt.Printf("export AWS_SESSION_EXPIRATION=%s\n", shellQuote(result.Expiration))
 }
 
 // PrintCredentials prints credentials with usage hints (verbose mode)
