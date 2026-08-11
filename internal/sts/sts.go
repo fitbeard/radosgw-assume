@@ -17,6 +17,9 @@ import (
 	"github.com/fitbeard/radosgw-assume/internal/config"
 )
 
+// STSRequestTimeout bounds the complete role-assumption operation, including retries.
+const STSRequestTimeout = 30 * time.Second
+
 // ValidateSessionName validates that the session name contains only alphanumeric
 // characters and dashes, and doesn't start or end with a dash
 func ValidateSessionName(name string) error {
@@ -39,19 +42,15 @@ func ValidateSessionName(name string) error {
 
 // AssumeRoleWithWebIdentity performs STS AssumeRoleWithWebIdentity operation
 func AssumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessionName string, sslVerify bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
+	return assumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessionName, sslVerify, sessionDuration, STSRequestTimeout)
+}
+
+func assumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessionName string, sslVerify bool, sessionDuration, requestTimeout time.Duration) (*config.AssumeRoleResult, error) {
 	// Create STS client with anonymous credentials
 	cfg := aws.Config{
 		Credentials: aws.AnonymousCredentials{},
+		HTTPClient:  newSTSHTTPClient(sslVerify, requestTimeout),
 		Region:      "us-east-1", // Required by AWS SDK, but not used by RadosGW
-	}
-
-	// Configure HTTP client for SSL verification
-	if !sslVerify {
-		cfg.HTTPClient = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			},
-		}
 	}
 
 	stsClient := sts.NewFromConfig(cfg, func(o *sts.Options) {
@@ -66,7 +65,10 @@ func AssumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessi
 		WebIdentityToken: aws.String(webIdentityToken),
 	}
 
-	result, err := stsClient.AssumeRoleWithWebIdentity(context.TODO(), input)
+	requestContext, cancelRequest := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancelRequest()
+
+	result, err := stsClient.AssumeRoleWithWebIdentity(requestContext, input)
 	if err != nil {
 		return nil, formatSTSError(err, endpointURL, roleArn)
 	}
@@ -88,6 +90,16 @@ func AssumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessi
 		Expiration:      expiration,
 		EndpointURL:     endpointURL,
 	}, nil
+}
+
+func newSTSHTTPClient(sslVerify bool, requestTimeout time.Duration) *http.Client {
+	client := &http.Client{Timeout: requestTimeout}
+	if !sslVerify {
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+	}
+	return client
 }
 
 // formatSTSError converts AWS SDK errors into user-friendly error messages

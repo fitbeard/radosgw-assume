@@ -1,10 +1,19 @@
 package auth
 
 import (
+	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
 
 func TestNewHTTPClient(t *testing.T) {
 	tests := []struct {
@@ -35,6 +44,9 @@ func TestNewHTTPClient(t *testing.T) {
 			if hasTransport != tt.wantTransport {
 				t.Errorf("NewHTTPClient transport = %v, want transport = %v", hasTransport, tt.wantTransport)
 			}
+			if client.Timeout != OIDCRequestTimeout {
+				t.Errorf("NewHTTPClient timeout = %v, want %v", client.Timeout, OIDCRequestTimeout)
+			}
 
 			if tt.wantTransport {
 				// Verify it's an http.Transport with TLS config
@@ -48,6 +60,32 @@ func TestNewHTTPClient(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestHTTPClientTimeout(t *testing.T) {
+	const requestTimeout = 10 * time.Millisecond
+	client := newHTTPClient(true, requestTimeout)
+	client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		select {
+		case <-request.Context().Done():
+			return nil, request.Context().Err()
+		case <-time.After(time.Second):
+			return nil, errors.New("request context was not cancelled")
+		}
+	})
+
+	response, err := client.Get("http://oidc.example.com")
+	if response != nil {
+		defer func() { _ = response.Body.Close() }()
+	}
+	if err == nil {
+		t.Fatal("HTTP request expected a timeout error")
+	}
+
+	var urlError *url.Error
+	if !errors.As(err, &urlError) || !urlError.Timeout() {
+		t.Errorf("HTTP request error = %v, want a timeout", err)
 	}
 }
 
@@ -173,6 +211,10 @@ func TestConstants(t *testing.T) {
 	// Verify constants have sensible values
 	if AuthTimeout <= 0 {
 		t.Errorf("AuthTimeout should be positive, got %v", AuthTimeout)
+	}
+
+	if OIDCRequestTimeout <= 0 {
+		t.Errorf("OIDCRequestTimeout should be positive, got %v", OIDCRequestTimeout)
 	}
 
 	if ProgressInterval <= 0 {

@@ -66,6 +66,42 @@ func TestAssumeRoleWithWebIdentity(t *testing.T) {
 	}
 }
 
+func TestAssumeRoleWithWebIdentityTimeout(t *testing.T) {
+	releaseHandler := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		<-releaseHandler
+	}))
+	t.Cleanup(func() {
+		close(releaseHandler)
+		server.Close()
+	})
+
+	_, err := assumeRoleWithWebIdentity(
+		server.URL,
+		"arn:aws:iam::123456789012:role/TestRole",
+		"test-token",
+		"test-session",
+		true,
+		time.Hour,
+		25*time.Millisecond,
+	)
+	if err == nil {
+		t.Fatal("assumeRoleWithWebIdentity() expected a timeout error")
+	}
+	if !strings.Contains(err.Error(), "connection timeout") {
+		t.Errorf("assumeRoleWithWebIdentity() error = %v, want connection timeout", err)
+	}
+}
+
+func TestSTSRequestTimeout(t *testing.T) {
+	if STSRequestTimeout <= 0 {
+		t.Errorf("STSRequestTimeout should be positive, got %v", STSRequestTimeout)
+	}
+	if client := newSTSHTTPClient(true, STSRequestTimeout); client.Timeout != STSRequestTimeout {
+		t.Errorf("STS HTTP client timeout = %v, want %v", client.Timeout, STSRequestTimeout)
+	}
+}
+
 func TestValidateDuration(t *testing.T) {
 	tests := []struct {
 		name     string
