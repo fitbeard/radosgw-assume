@@ -19,8 +19,10 @@ const (
 	ProgressInterval = 5 * time.Second
 	// DefaultPollingInterval is the default interval for device flow polling
 	DefaultPollingInterval = 5
-	// ServerStartTimeout is how long to wait for the callback server to start
-	ServerStartTimeout = 200 * time.Millisecond
+	// CallbackReadHeaderTimeout limits how long the local callback server waits for request headers.
+	CallbackReadHeaderTimeout = 5 * time.Second
+	// CallbackShutdownTimeout limits graceful shutdown of the local callback server.
+	CallbackShutdownTimeout = 5 * time.Second
 	// DefaultPKCEMethod is used when no PKCE method is configured.
 	DefaultPKCEMethod = "S256"
 	// PKCEMethodPlain sends the verifier as the challenge.
