@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -106,6 +107,9 @@ func (r *cliRunner) run(program string, args []string) int {
 
 			profileName, err = r.selectProfile(profiles)
 			if err != nil {
+				if errors.Is(err, ui.ErrSelectionCancelled) {
+					return 0
+				}
 				_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
 				return 1
 			}
