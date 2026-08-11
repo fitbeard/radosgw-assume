@@ -73,6 +73,27 @@ func TestProfileSelectorCancellationKeys(t *testing.T) {
 	}
 }
 
+func TestProfileSelectorHeight(t *testing.T) {
+	tests := []struct {
+		name         string
+		profileCount int
+		wantHeight   int
+	}{
+		{name: "one profile", profileCount: 1, wantHeight: 3},
+		{name: "seven profiles", profileCount: 7, wantHeight: 9},
+		{name: "ten profiles", profileCount: 10, wantHeight: 12},
+		{name: "more than ten profiles", profileCount: 15, wantHeight: 12},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := profileSelectorHeight(test.profileCount); got != test.wantHeight {
+				t.Errorf("profileSelectorHeight(%d) = %d, want %d", test.profileCount, got, test.wantHeight)
+			}
+		})
+	}
+}
+
 func TestPrintCredentials(t *testing.T) {
 	// Test that PrintCredentials doesn't panic
 	defer func() {
