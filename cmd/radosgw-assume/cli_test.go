@@ -287,13 +287,11 @@ func TestCLIRunnerFailures(t *testing.T) {
 			wantMessage: "Error loading configuration from environment variables: env failure",
 		},
 		{
-			name: "no interactive profiles after config failure",
-			args: []string{"--verbose"},
+			name: "AWS config",
 			configure: func(r *cliRunner) {
 				r.loadAWSConfig = func() (*ini.File, error) { return nil, errors.New("config failure") }
-				r.getProfiles = func(*ini.File) []string { return nil }
 			},
-			wantMessage: "# Failed to load config file: config failure\nNo RadosGW profiles found",
+			wantMessage: "Error loading AWS config: config failure",
 		},
 		{
 			name: "interactive selector",

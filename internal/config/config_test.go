@@ -1,8 +1,12 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,40 +14,165 @@ import (
 )
 
 func TestLoadAWSConfig(t *testing.T) {
-	// Test the actual LoadAWSConfig function
-	config, err := LoadAWSConfig()
+	t.Run("loads config from home directory", func(t *testing.T) {
+		homeDirectory := t.TempDir()
+		writeTestAWSConfig(t, homeDirectory, `[profile test-profile]
+endpoint_url = https://test.example.com
+radosgw_oidc_provider = https://oidc.example.com
+`)
 
-	// This might fail if AWS config doesn't exist, which is ok for testing
-	if err == nil {
-		if config == nil {
-			t.Error("LoadAWSConfig() returned nil config")
+		config, err := loadAWSConfig(testConfigLoadDependencies(homeDirectory, io.Discard))
+		if err != nil {
+			t.Fatalf("loadAWSConfig() error = %v", err)
 		}
+		section, err := config.GetSection("profile test-profile")
+		if err != nil {
+			t.Fatalf("loaded config does not contain test profile: %v", err)
+		}
+		if got := section.Key("endpoint_url").String(); got != "https://test.example.com" {
+			t.Errorf("endpoint_url = %q, want https://test.example.com", got)
+		}
+	})
+
+	t.Run("missing config returns empty config", func(t *testing.T) {
+		config, err := loadAWSConfig(testConfigLoadDependencies(t.TempDir(), io.Discard))
+		if err != nil {
+			t.Fatalf("loadAWSConfig() error = %v", err)
+		}
+		if config == nil {
+			t.Fatal("loadAWSConfig() returned nil config")
+		}
+		if profiles := GetRadosGWProfiles(config); len(profiles) != 0 {
+			t.Errorf("profiles = %v, want empty", profiles)
+		}
+	})
+
+	for _, test := range []struct {
+		name    string
+		content string
+	}{
+		{name: "unclosed section", content: "[profile broken"},
+		{name: "prefixed section", content: "i[profile system-prd]"},
+	} {
+		t.Run(test.name+" returns error", func(t *testing.T) {
+			homeDirectory := t.TempDir()
+			writeTestAWSConfig(t, homeDirectory, test.content)
+
+			_, err := loadAWSConfig(testConfigLoadDependencies(homeDirectory, io.Discard))
+			if err == nil || !strings.Contains(err.Error(), "failed to load AWS config") {
+				t.Errorf("loadAWSConfig() error = %v, want malformed config error", err)
+			}
+		})
 	}
+
+	t.Run("home lookup failure returns error", func(t *testing.T) {
+		dependencies := testConfigLoadDependencies("", io.Discard)
+		dependencies.userHomeDir = func() (string, error) {
+			return "", errors.New("home lookup failed")
+		}
+
+		_, err := loadAWSConfig(dependencies)
+		if err == nil || !strings.Contains(err.Error(), "could not find home directory") {
+			t.Errorf("loadAWSConfig() error = %v, want home lookup error", err)
+		}
+	})
+
+	t.Run("filesystem failure is not treated as missing", func(t *testing.T) {
+		homeDirectory := t.TempDir()
+		dependencies := testConfigLoadDependencies(homeDirectory, io.Discard)
+		var loadedPath string
+		dependencies.loadINIFile = func(path string) (*ini.File, error) {
+			loadedPath = path
+			return nil, os.ErrPermission
+		}
+
+		_, err := loadAWSConfig(dependencies)
+		if err == nil || !errors.Is(err, os.ErrPermission) {
+			t.Errorf("loadAWSConfig() error = %v, want permission error", err)
+		}
+		wantPath := filepath.Join(homeDirectory, ".aws", "config")
+		if loadedPath != wantPath {
+			t.Errorf("loaded path = %q, want %q", loadedPath, wantPath)
+		}
+	})
+
+	t.Run("public loader uses home directory", func(t *testing.T) {
+		homeDirectory := t.TempDir()
+		t.Setenv("HOME", homeDirectory)
+		config, err := LoadAWSConfig()
+		if err != nil {
+			t.Fatalf("LoadAWSConfig() error = %v", err)
+		}
+		if config == nil {
+			t.Fatal("LoadAWSConfig() returned nil config")
+		}
+	})
 }
 
 func TestLoadAWSConfigOrEmpty(t *testing.T) {
-	// Test that LoadAWSConfigOrEmpty never returns nil
 	tests := []struct {
-		name        string
-		verboseMode bool
+		name           string
+		verboseMode    bool
+		wantDiagnostic bool
 	}{
-		{
-			name:        "verbose mode",
-			verboseMode: true,
-		},
-		{
-			name:        "quiet mode",
-			verboseMode: false,
-		},
+		{name: "verbose failure", verboseMode: true, wantDiagnostic: true},
+		{name: "quiet failure", verboseMode: false},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := LoadAWSConfigOrEmpty(tt.verboseMode)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			dependencies := testConfigLoadDependencies(t.TempDir(), &stderr)
+			dependencies.loadINIFile = func(string) (*ini.File, error) {
+				return nil, errors.New("load failed")
+			}
+
+			config := loadAWSConfigOrEmpty(test.verboseMode, dependencies)
 			if config == nil {
-				t.Error("LoadAWSConfigOrEmpty() returned nil, expected non-nil config")
+				t.Fatal("loadAWSConfigOrEmpty() returned nil config")
+			}
+			containsDiagnostic := strings.Contains(stderr.String(), "Failed to load config file")
+			if containsDiagnostic != test.wantDiagnostic {
+				t.Errorf("stderr = %q, diagnostic present = %v, want %v", stderr.String(), containsDiagnostic, test.wantDiagnostic)
 			}
 		})
+	}
+
+	t.Run("successful load returns config", func(t *testing.T) {
+		homeDirectory := t.TempDir()
+		writeTestAWSConfig(t, homeDirectory, `[profile test-profile]
+endpoint_url = https://test.example.com
+role_arn = arn:aws:iam::123456789012:role/TestRole
+`)
+		config := loadAWSConfigOrEmpty(false, testConfigLoadDependencies(homeDirectory, io.Discard))
+		if profiles := GetRadosGWProfiles(config); len(profiles) != 1 || profiles[0] != "test-profile" {
+			t.Errorf("profiles = %v, want [test-profile]", profiles)
+		}
+	})
+
+	t.Run("public fallback returns config", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		if config := LoadAWSConfigOrEmpty(false); config == nil {
+			t.Fatal("LoadAWSConfigOrEmpty() returned nil config")
+		}
+	})
+}
+
+func testConfigLoadDependencies(homeDirectory string, stderr io.Writer) configLoadDependencies {
+	dependencies := newConfigLoadDependencies()
+	dependencies.stderr = stderr
+	dependencies.userHomeDir = func() (string, error) { return homeDirectory, nil }
+	return dependencies
+}
+
+func writeTestAWSConfig(t *testing.T, homeDirectory, content string) {
+	t.Helper()
+	configDirectory := filepath.Join(homeDirectory, ".aws")
+	if err := os.MkdirAll(configDirectory, 0o700); err != nil {
+		t.Fatalf("create test AWS config directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDirectory, "config"), []byte(content), 0o600); err != nil {
+		t.Fatalf("write test AWS config: %v", err)
 	}
 }
 
@@ -206,30 +335,16 @@ radosgw_oidc_pkce_method = plain
 }
 
 func TestGetProfileConfigFromEnv(t *testing.T) {
-	// Save original env
-	originalEndpoint := os.Getenv("AWS_ENDPOINT_URL")
-	originalProvider := os.Getenv("RADOSGW_OIDC_PROVIDER")
-	originalClientID := os.Getenv("RADOSGW_OIDC_CLIENT_ID")
-	originalAuthType := os.Getenv("RADOSGW_OIDC_AUTH_TYPE")
-	originalPKCEMethod := os.Getenv("RADOSGW_OIDC_PKCE_METHOD")
-	originalSessionName := os.Getenv("RADOSGW_ROLE_SESSION_NAME")
-
-	defer func() {
-		// Restore original env
-		_ = os.Setenv("AWS_ENDPOINT_URL", originalEndpoint)
-		_ = os.Setenv("RADOSGW_OIDC_PROVIDER", originalProvider)
-		_ = os.Setenv("RADOSGW_OIDC_CLIENT_ID", originalClientID)
-		_ = os.Setenv("RADOSGW_OIDC_AUTH_TYPE", originalAuthType)
-		_ = os.Setenv("RADOSGW_OIDC_PKCE_METHOD", originalPKCEMethod)
-		_ = os.Setenv("RADOSGW_ROLE_SESSION_NAME", originalSessionName)
-	}()
-
 	tests := []struct {
 		name            string
 		envVars         map[string]string
 		wantErr         bool
 		wantURL         string
+		wantAuthType    string
+		wantScope       string
 		wantPKCEMethod  string
+		wantSSLVerify   string
+		wantRoleARN     string
 		wantSessionName string
 	}{
 		{
@@ -248,19 +363,30 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 				"AWS_ENDPOINT_URL":       "https://test.example.com",
 				"RADOSGW_OIDC_AUTH_TYPE": "token",
 			},
-			wantErr: false,
-			wantURL: "https://test.example.com",
+			wantErr:      false,
+			wantURL:      "https://test.example.com",
+			wantAuthType: "token",
 		},
 		{
-			name: "with plain PKCE",
+			name: "with all optional OIDC values",
 			envVars: map[string]string{
-				"AWS_ENDPOINT_URL":         "https://test.example.com",
-				"RADOSGW_OIDC_PROVIDER":    "https://oidc.example.com",
-				"RADOSGW_OIDC_CLIENT_ID":   "test-client",
-				"RADOSGW_OIDC_PKCE_METHOD": "plain",
+				"AWS_ENDPOINT_URL":          "https://test.example.com",
+				"RADOSGW_OIDC_PROVIDER":     "https://oidc.example.com",
+				"RADOSGW_OIDC_CLIENT_ID":    "test-client",
+				"RADOSGW_OIDC_AUTH_TYPE":    "browser",
+				"RADOSGW_OIDC_SCOPE":        "openid profile",
+				"RADOSGW_OIDC_PKCE_METHOD":  "plain",
+				"RADOSGW_SSL_VERIFY":        "false",
+				"RADOSGW_ROLE_ARN":          "arn:aws:iam::123456789012:role/TestRole",
+				"RADOSGW_ROLE_SESSION_NAME": "custom-session",
 			},
-			wantURL:        "https://test.example.com",
-			wantPKCEMethod: "plain",
+			wantURL:         "https://test.example.com",
+			wantAuthType:    "browser",
+			wantScope:       "openid profile",
+			wantPKCEMethod:  "plain",
+			wantSSLVerify:   "false",
+			wantRoleARN:     "arn:aws:iam::123456789012:role/TestRole",
+			wantSessionName: "custom-session",
 		},
 		{
 			name: "with custom session name",
@@ -279,10 +405,15 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 			envVars: map[string]string{
 				"AWS_ENDPOINT_URL":          "https://test.example.com",
 				"RADOSGW_OIDC_AUTH_TYPE":    "token",
+				"RADOSGW_SSL_VERIFY":        "0",
+				"RADOSGW_ROLE_ARN":          "arn:aws:iam::123456789012:role/TokenRole",
 				"RADOSGW_ROLE_SESSION_NAME": "token-session",
 			},
 			wantErr:         false,
 			wantURL:         "https://test.example.com",
+			wantAuthType:    "token",
+			wantSSLVerify:   "0",
+			wantRoleARN:     "arn:aws:iam::123456789012:role/TokenRole",
 			wantSessionName: "token-session",
 		},
 		{
@@ -301,21 +432,34 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "missing OIDC client ID (non-token auth)",
+			envVars: map[string]string{
+				"AWS_ENDPOINT_URL":      "https://test.example.com",
+				"RADOSGW_OIDC_PROVIDER": "https://oidc.example.com",
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Clear relevant env vars
-			_ = os.Unsetenv("AWS_ENDPOINT_URL")
-			_ = os.Unsetenv("RADOSGW_OIDC_PROVIDER")
-			_ = os.Unsetenv("RADOSGW_OIDC_CLIENT_ID")
-			_ = os.Unsetenv("RADOSGW_OIDC_AUTH_TYPE")
-			_ = os.Unsetenv("RADOSGW_OIDC_PKCE_METHOD")
-			_ = os.Unsetenv("RADOSGW_ROLE_SESSION_NAME")
+			for _, key := range []string{
+				"AWS_ENDPOINT_URL",
+				"RADOSGW_OIDC_PROVIDER",
+				"RADOSGW_OIDC_CLIENT_ID",
+				"RADOSGW_OIDC_AUTH_TYPE",
+				"RADOSGW_OIDC_SCOPE",
+				"RADOSGW_OIDC_PKCE_METHOD",
+				"RADOSGW_SSL_VERIFY",
+				"RADOSGW_ROLE_ARN",
+				"RADOSGW_ROLE_SESSION_NAME",
+			} {
+				t.Setenv(key, "")
+			}
 
-			// Set test env vars
 			for key, value := range tt.envVars {
-				_ = os.Setenv(key, value)
+				t.Setenv(key, value)
 			}
 
 			profileConfig, err := GetProfileConfigFromEnv()
@@ -335,11 +479,22 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 			if profileConfig.EndpointURL != tt.wantURL {
 				t.Errorf("GetProfileConfigFromEnv() endpoint = %v, want %v", profileConfig.EndpointURL, tt.wantURL)
 			}
+			if profileConfig.RadosGWOIDCAuthType != tt.wantAuthType {
+				t.Errorf("GetProfileConfigFromEnv() auth_type = %v, want %v", profileConfig.RadosGWOIDCAuthType, tt.wantAuthType)
+			}
+			if profileConfig.RadosGWOIDCScope != tt.wantScope {
+				t.Errorf("GetProfileConfigFromEnv() scope = %v, want %v", profileConfig.RadosGWOIDCScope, tt.wantScope)
+			}
 			if profileConfig.RadosGWOIDCPKCEMethod != tt.wantPKCEMethod {
 				t.Errorf("GetProfileConfigFromEnv() pkce_method = %v, want %v", profileConfig.RadosGWOIDCPKCEMethod, tt.wantPKCEMethod)
 			}
-
-			if tt.wantSessionName != "" && profileConfig.RoleSessionName != tt.wantSessionName {
+			if profileConfig.RadosGWSSLVerify != tt.wantSSLVerify {
+				t.Errorf("GetProfileConfigFromEnv() ssl_verify = %v, want %v", profileConfig.RadosGWSSLVerify, tt.wantSSLVerify)
+			}
+			if profileConfig.RoleArn != tt.wantRoleARN {
+				t.Errorf("GetProfileConfigFromEnv() role_arn = %v, want %v", profileConfig.RoleArn, tt.wantRoleARN)
+			}
+			if profileConfig.RoleSessionName != tt.wantSessionName {
 				t.Errorf("GetProfileConfigFromEnv() session_name = %v, want %v", profileConfig.RoleSessionName, tt.wantSessionName)
 			}
 		})

@@ -92,10 +92,8 @@ func (r *cliRunner) run(program string, args []string) int {
 	} else {
 		awsConfig, err = r.loadAWSConfig()
 		if err != nil {
-			if options.verbose {
-				_, _ = fmt.Fprintf(r.stderr, "# Failed to load config file: %v\n", err)
-			}
-			awsConfig = ini.Empty()
+			_, _ = fmt.Fprintf(r.stderr, "Error loading AWS config: %v\n", err)
+			return 1
 		}
 
 		if profileName == "" {
