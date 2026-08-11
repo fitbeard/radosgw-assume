@@ -38,9 +38,9 @@ func PrintVersion() {
 
 // FprintVersion writes detailed version information to w.
 func FprintVersion(w io.Writer) {
-	fmt.Fprintf(w, "Version %s\n", Version)
-	fmt.Fprintf(w, "Git commit: %s\n", GitCommit)
-	fmt.Fprintf(w, "Build date: %s\n", BuildDate)
-	fmt.Fprintf(w, "Go version: %s\n", GoVersion)
-	fmt.Fprintf(w, "Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	_, _ = fmt.Fprintf(w, "Version %s\n", Version)
+	_, _ = fmt.Fprintf(w, "Git commit: %s\n", GitCommit)
+	_, _ = fmt.Fprintf(w, "Build date: %s\n", BuildDate)
+	_, _ = fmt.Fprintf(w, "Go version: %s\n", GoVersion)
+	_, _ = fmt.Fprintf(w, "Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 }

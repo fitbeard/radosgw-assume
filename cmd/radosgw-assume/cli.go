@@ -61,7 +61,7 @@ func newCLIRunner(stdout, stderr io.Writer) *cliRunner {
 func (r *cliRunner) run(program string, args []string) int {
 	options, err := parseCLIArguments(program, args)
 	if err != nil {
-		fmt.Fprintf(r.stderr, "Error: %v\n", err)
+		_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
 		return 1
 	}
 
@@ -81,18 +81,18 @@ func (r *cliRunner) run(program string, args []string) int {
 	if options.useEnv {
 		profileConfig, err = r.loadEnvConfig()
 		if err != nil {
-			fmt.Fprintf(r.stderr, "Error loading configuration from environment variables: %v\n", err)
+			_, _ = fmt.Fprintf(r.stderr, "Error loading configuration from environment variables: %v\n", err)
 			return 1
 		}
 		profileName = "env"
 		if options.verbose {
-			fmt.Fprintln(r.stderr, "# Using configuration from environment variables")
+			_, _ = fmt.Fprintln(r.stderr, "# Using configuration from environment variables")
 		}
 	} else {
 		awsConfig, err = r.loadAWSConfig()
 		if err != nil {
 			if options.verbose {
-				fmt.Fprintf(r.stderr, "# Failed to load config file: %v\n", err)
+				_, _ = fmt.Fprintf(r.stderr, "# Failed to load config file: %v\n", err)
 			}
 			awsConfig = ini.Empty()
 		}
@@ -100,20 +100,20 @@ func (r *cliRunner) run(program string, args []string) int {
 		if profileName == "" {
 			profiles := r.getProfiles(awsConfig)
 			if len(profiles) == 0 {
-				fmt.Fprintln(r.stderr, "No RadosGW profiles found in AWS config file")
+				_, _ = fmt.Fprintln(r.stderr, "No RadosGW profiles found in AWS config file")
 				return 1
 			}
 
 			profileName, err = r.selectProfile(profiles)
 			if err != nil {
-				fmt.Fprintf(r.stderr, "Error: %v\n", err)
+				_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
 				return 1
 			}
 		}
 
 		profileConfig, err = r.getProfile(profileName, awsConfig)
 		if err != nil {
-			fmt.Fprintf(r.stderr, "Error: %v\n", err)
+			_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
 			return 1
 		}
 	}
@@ -124,7 +124,7 @@ func (r *cliRunner) run(program string, args []string) int {
 
 	result, err := r.getCredentials(profileName, profileConfig, awsConfig, options.verbose, options.sessionDuration)
 	if err != nil {
-		fmt.Fprintf(r.stderr, "Error: %v\n", err)
+		_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
 		return 1
 	}
 
@@ -155,13 +155,13 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 			options.useEnv = true
 		case "-d", "--duration":
 			if i+1 >= len(args) {
-				return cliOptions{}, fmt.Errorf("Duration flag requires a value\nUsage: %s -d 1h [profile]", program)
+				return cliOptions{}, fmt.Errorf("duration flag requires a value\nUsage: %s -d 1h [profile]", program)
 			}
 			i++
 			durationValue := args[i]
 			sessionDuration, err := duration.Parse(durationValue)
 			if err != nil {
-				return cliOptions{}, fmt.Errorf("Invalid duration '%s': %v\nValid formats: '3600' (seconds), '60m' (minutes), '1h' (hours)", durationValue, err)
+				return cliOptions{}, fmt.Errorf("invalid duration '%s': %v\nValid formats: '3600' (seconds), '60m' (minutes), '1h' (hours)", durationValue, err)
 			}
 			if err := duration.Validate(sessionDuration); err != nil {
 				return cliOptions{}, err
@@ -169,20 +169,20 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 			options.sessionDuration = sessionDuration
 		case "-s", "--session":
 			if i+1 >= len(args) {
-				return cliOptions{}, fmt.Errorf("Session name flag requires a value\nUsage: %s -s my-session [profile]", program)
+				return cliOptions{}, fmt.Errorf("session name flag requires a value\nUsage: %s -s my-session [profile]", program)
 			}
 			i++
 			sessionName := args[i]
 			if err := sts.ValidateSessionName(sessionName); err != nil {
-				return cliOptions{}, fmt.Errorf("Invalid session name '%s': %v", sessionName, err)
+				return cliOptions{}, fmt.Errorf("invalid session name '%s': %v", sessionName, err)
 			}
 			options.sessionName = sessionName
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return cliOptions{}, fmt.Errorf("Unknown flag '%s'\nUse -h or --help for usage information", arg)
+				return cliOptions{}, fmt.Errorf("unknown flag '%s'\nUse -h or --help for usage information", arg)
 			}
 			if options.profileName != "" {
-				return cliOptions{}, fmt.Errorf("Multiple profile names specified\nUse -h or --help for usage information")
+				return cliOptions{}, fmt.Errorf("multiple profile names specified\nUse -h or --help for usage information")
 			}
 			options.profileName = arg
 		}

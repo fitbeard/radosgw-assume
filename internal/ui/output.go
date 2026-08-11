@@ -16,15 +16,15 @@ func shellQuote(value string) string {
 
 // fprintCredentialExports writes the credential export statements.
 func fprintCredentialExports(w io.Writer, result *config.AssumeRoleResult) {
-	fmt.Fprintf(w, "export AWS_ACCESS_KEY_ID=%s\n", shellQuote(result.AccessKeyID))
-	fmt.Fprintf(w, "export AWS_SECRET_ACCESS_KEY=%s\n", shellQuote(result.SecretAccessKey))
-	fmt.Fprintf(w, "export AWS_SESSION_TOKEN=%s\n", shellQuote(result.SessionToken))
+	_, _ = fmt.Fprintf(w, "export AWS_ACCESS_KEY_ID=%s\n", shellQuote(result.AccessKeyID))
+	_, _ = fmt.Fprintf(w, "export AWS_SECRET_ACCESS_KEY=%s\n", shellQuote(result.SecretAccessKey))
+	_, _ = fmt.Fprintf(w, "export AWS_SESSION_TOKEN=%s\n", shellQuote(result.SessionToken))
 	// Don't export fake AWS_PROFILE when using environment variables
 	if result.ProfileName != "env" {
-		fmt.Fprintf(w, "export AWS_PROFILE=%s\n", shellQuote(result.ProfileName))
+		_, _ = fmt.Fprintf(w, "export AWS_PROFILE=%s\n", shellQuote(result.ProfileName))
 	}
-	fmt.Fprintf(w, "export AWS_CREDENTIAL_EXPIRATION=%s\n", shellQuote(result.Expiration))
-	fmt.Fprintf(w, "export AWS_SESSION_EXPIRATION=%s\n", shellQuote(result.Expiration))
+	_, _ = fmt.Fprintf(w, "export AWS_CREDENTIAL_EXPIRATION=%s\n", shellQuote(result.Expiration))
+	_, _ = fmt.Fprintf(w, "export AWS_SESSION_EXPIRATION=%s\n", shellQuote(result.Expiration))
 }
 
 // PrintCredentials prints credentials with usage hints (verbose mode)
@@ -37,14 +37,14 @@ func FprintCredentials(stdout, stderr io.Writer, result *config.AssumeRoleResult
 	fprintCredentialExports(stdout, result)
 
 	// Print usage hint to stderr so it doesn't interfere with sourcing
-	fmt.Fprintf(stderr, "# Credentials exported for profile: %s\n", result.ProfileName)
-	fmt.Fprintf(stderr, "# Valid until: %s\n", result.Expiration)
+	_, _ = fmt.Fprintf(stderr, "# Credentials exported for profile: %s\n", result.ProfileName)
+	_, _ = fmt.Fprintf(stderr, "# Valid until: %s\n", result.Expiration)
 	if result.ProfileName != "env" {
-		fmt.Fprintf(stderr, "# Usage: eval $(radosgw-assume %s)\n", result.ProfileName)
+		_, _ = fmt.Fprintf(stderr, "# Usage: eval $(radosgw-assume %s)\n", result.ProfileName)
 	} else {
-		fmt.Fprintln(stderr, "# Usage: eval $(radosgw-assume --env)")
+		_, _ = fmt.Fprintln(stderr, "# Usage: eval $(radosgw-assume --env)")
 	}
-	fmt.Fprintf(stderr, "# Test with: aws s3 ls --endpoint-url=%s\n", result.EndpointURL)
+	_, _ = fmt.Fprintf(stderr, "# Test with: aws s3 ls --endpoint-url=%s\n", result.EndpointURL)
 }
 
 // PrintCredentialsOnly prints credentials without hints (clean mode)

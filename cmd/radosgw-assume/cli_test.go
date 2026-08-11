@@ -74,13 +74,13 @@ func TestParseCLIArgumentsErrors(t *testing.T) {
 		args        []string
 		wantMessage string
 	}{
-		{name: "duration value missing", args: []string{"--duration"}, wantMessage: "Duration flag requires a value\nUsage: custom-name -d 1h [profile]"},
-		{name: "duration malformed", args: []string{"--duration", "tomorrow"}, wantMessage: "Invalid duration 'tomorrow'"},
+		{name: "duration value missing", args: []string{"--duration"}, wantMessage: "duration flag requires a value\nUsage: custom-name -d 1h [profile]"},
+		{name: "duration malformed", args: []string{"--duration", "tomorrow"}, wantMessage: "invalid duration 'tomorrow'"},
 		{name: "duration too short", args: []string{"--duration", "1m"}, wantMessage: "duration cannot be less than 15 minutes"},
-		{name: "session value missing", args: []string{"--session"}, wantMessage: "Session name flag requires a value\nUsage: custom-name -s my-session [profile]"},
-		{name: "session invalid", args: []string{"--session", "not_valid"}, wantMessage: "Invalid session name 'not_valid'"},
-		{name: "unknown flag", args: []string{"--unknown"}, wantMessage: "Unknown flag '--unknown'"},
-		{name: "multiple profiles", args: []string{"first", "second"}, wantMessage: "Multiple profile names specified"},
+		{name: "session value missing", args: []string{"--session"}, wantMessage: "session name flag requires a value\nUsage: custom-name -s my-session [profile]"},
+		{name: "session invalid", args: []string{"--session", "not_valid"}, wantMessage: "invalid session name 'not_valid'"},
+		{name: "unknown flag", args: []string{"--unknown"}, wantMessage: "unknown flag '--unknown'"},
+		{name: "multiple profiles", args: []string{"first", "second"}, wantMessage: "multiple profile names specified"},
 	}
 
 	for _, tt := range tests {
@@ -258,7 +258,7 @@ func TestCLIRunnerFailures(t *testing.T) {
 			name:        "argument parsing",
 			args:        []string{"--unknown"},
 			configure:   func(_ *cliRunner) {},
-			wantMessage: "Error: Unknown flag '--unknown'",
+			wantMessage: "Error: unknown flag '--unknown'",
 		},
 		{
 			name: "environment config",
