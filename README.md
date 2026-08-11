@@ -269,10 +269,10 @@ export RADOSGW_SSL_VERIFY="true"              # Optional
 # Set up your profile once
 cat >> ~/.aws/config << EOF
 [profile myproject]
-radosgw_endpoint_url = https://storage.company.com
+endpoint_url = https://storage.company.com
 radosgw_oidc_provider = https://sso.company.com/realms/engineering
 radosgw_oidc_client_id = storage-access
-radosgw_role_arn = arn:aws:iam:::role/DeveloperAccess
+role_arn = arn:aws:iam:::role/DeveloperAccess
 EOF
 
 radosgw-assume
