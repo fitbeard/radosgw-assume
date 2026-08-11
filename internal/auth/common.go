@@ -6,8 +6,10 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -56,44 +58,65 @@ func newHTTPClient(sslVerify bool, requestTimeout time.Duration) *http.Client {
 	return client
 }
 
-// ProgressIndicator manages progress indication during authentication
+// ProgressIndicator manages progress indication during authentication.
 type ProgressIndicator struct {
-	ticker *time.Ticker
-	done   chan bool
+	output     io.Writer
+	ticks      <-chan time.Time
+	stopTicker func()
+	done       chan struct{}
+	stopped    chan struct{}
+	stopOnce   sync.Once
 }
 
-// NewProgressIndicator creates and starts a new progress indicator
+// NewProgressIndicator creates and starts a new progress indicator.
 func NewProgressIndicator() *ProgressIndicator {
-	p := &ProgressIndicator{
-		ticker: time.NewTicker(ProgressInterval),
-		done:   make(chan bool),
+	ticker := time.NewTicker(ProgressInterval)
+	return newProgressIndicator(os.Stderr, ticker.C, ticker.Stop)
+}
+
+func newProgressIndicator(output io.Writer, ticks <-chan time.Time, stopTicker func()) *ProgressIndicator {
+	progress := &ProgressIndicator{
+		output:     output,
+		ticks:      ticks,
+		stopTicker: stopTicker,
+		done:       make(chan struct{}),
+		stopped:    make(chan struct{}),
 	}
-	go p.run()
-	return p
+	go progress.run()
+	return progress
 }
 
 func (p *ProgressIndicator) run() {
+	defer close(p.stopped)
 	for {
 		select {
-		case <-p.ticker.C:
-			fmt.Fprintf(os.Stderr, "#")
+		case <-p.ticks:
+			_, _ = fmt.Fprint(p.output, "#")
 		case <-p.done:
 			return
 		}
 	}
 }
 
-// Stop stops the progress indicator and prints a newline
+// Stop stops the progress indicator and prints a newline.
 func (p *ProgressIndicator) Stop() {
-	p.ticker.Stop()
-	p.done <- true
-	fmt.Fprintf(os.Stderr, "\n")
+	p.stop(true)
 }
 
-// StopQuiet stops the progress indicator without printing a newline
+// StopQuiet stops the progress indicator without printing a newline.
 func (p *ProgressIndicator) StopQuiet() {
-	p.ticker.Stop()
-	p.done <- true
+	p.stop(false)
+}
+
+func (p *ProgressIndicator) stop(printNewline bool) {
+	p.stopOnce.Do(func() {
+		p.stopTicker()
+		close(p.done)
+		<-p.stopped
+		if printNewline {
+			_, _ = fmt.Fprintln(p.output)
+		}
+	})
 }
 
 // GenerateRandomString generates a cryptographically secure random string

@@ -9,6 +9,11 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+const (
+	profileSelectorMaxVisibleOptions = 10
+	profileSelectorChromeHeight      = 2
+)
+
 // ErrSelectionCancelled indicates that the interactive selector was dismissed.
 var ErrSelectionCancelled = errors.New("profile selection cancelled")
 
@@ -25,7 +30,7 @@ func SelectProfileInteractively(profiles []string) (string, error) {
 		Description("Press / to filter, Esc or Ctrl+C to cancel.").
 		Options(huh.NewOptions(profiles...)...).
 		Value(&result).
-		Height(min(len(profiles), 10))
+		Height(profileSelectorHeight(len(profiles)))
 
 	err := huh.NewForm(huh.NewGroup(selector)).
 		WithKeyMap(keyMap).
@@ -37,6 +42,11 @@ func SelectProfileInteractively(profiles []string) (string, error) {
 	}
 
 	return result, nil
+}
+
+func profileSelectorHeight(profileCount int) int {
+	visibleOptions := min(profileCount, profileSelectorMaxVisibleOptions)
+	return visibleOptions + profileSelectorChromeHeight
 }
 
 func profileSelectorTheme(isDark bool) *huh.Styles {
