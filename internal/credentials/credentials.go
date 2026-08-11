@@ -2,6 +2,7 @@ package credentials
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -13,47 +14,115 @@ import (
 	"gopkg.in/ini.v1"
 )
 
-// GetCredentials orchestrates the authentication and role assumption process
-func GetCredentials(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
-	var sourceConfig *config.ProfileConfig
-	var roleArn string
-	var err error
+const (
+	defaultAuthType = "device"
+	defaultScope    = "openid"
+)
 
-	// Handle role assumption
-	if profileConfig.RoleArn != "" {
-		if profileConfig.SourceProfile != "" {
-			// Role assumption with source_profile
-			sourceConfig, err = config.ResolveSourceProfile(profileConfig, awsConfig, verboseMode)
-			if err != nil {
-				return nil, err
-			}
-			if verboseMode {
-				fmt.Fprintf(os.Stderr, "# Role assumption: %s\n", profileConfig.RoleArn)
-				fmt.Fprintf(os.Stderr, "# Source profile: %s\n", profileConfig.SourceProfile)
-			}
-		} else {
-			// Direct profile with role_arn
-			sourceConfig = profileConfig
-			if verboseMode {
-				fmt.Fprintf(os.Stderr, "# Direct role assumption: %s\n", profileConfig.RoleArn)
-			}
-		}
-		roleArn = profileConfig.RoleArn
-	} else {
+type credentialDependencies struct {
+	stderr io.Writer
+	getenv func(string) string
+	now    func() time.Time
+
+	resolveSourceProfile func(*config.ProfileConfig, *ini.File, bool) (*config.ProfileConfig, error)
+	authenticateDevice   func(string, string, string, string, bool, bool) (string, error)
+	authenticateBrowser  func(string, string, string, string, bool, bool) (string, error)
+	assumeRole           func(string, string, string, string, bool, time.Duration) (*config.AssumeRoleResult, error)
+}
+
+type resolvedCredentialConfig struct {
+	sourceConfig *config.ProfileConfig
+	roleARN      string
+	authType     string
+	scope        string
+	sslVerify    bool
+}
+
+func newCredentialDependencies() credentialDependencies {
+	return credentialDependencies{
+		stderr:               os.Stderr,
+		getenv:               os.Getenv,
+		now:                  time.Now,
+		resolveSourceProfile: config.ResolveSourceProfile,
+		authenticateDevice:   auth.AuthenticateDeviceFlow,
+		authenticateBrowser:  auth.AuthenticateBrowserFlow,
+		assumeRole:           sts.AssumeRoleWithWebIdentity,
+	}
+}
+
+// GetCredentials orchestrates the authentication and role assumption process.
+func GetCredentials(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
+	return getCredentials(profileName, profileConfig, awsConfig, verboseMode, sessionDuration, newCredentialDependencies())
+}
+
+func getCredentials(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration, dependencies credentialDependencies) (*config.AssumeRoleResult, error) {
+	resolvedConfig, err := resolveCredentialConfig(profileName, profileConfig, awsConfig, verboseMode, dependencies)
+	if err != nil {
+		return nil, err
+	}
+
+	printCredentialContext(dependencies.stderr, profileName, resolvedConfig, verboseMode, sessionDuration)
+
+	accessToken, err := authenticate(resolvedConfig, verboseMode, dependencies)
+	if err != nil {
+		return nil, err
+	}
+
+	roleSessionName := profileConfig.RoleSessionName
+	if roleSessionName == "" {
+		roleSessionName = fmt.Sprintf("radosgw-assume-%s", dependencies.now().UTC().Format("20060102T150405Z"))
+	}
+
+	verbosef(dependencies.stderr, verboseMode, "# Assuming role with web identity: %s\n", resolvedConfig.roleARN)
+	verbosef(dependencies.stderr, verboseMode, "# Session name: %s\n", roleSessionName)
+
+	result, err := dependencies.assumeRole(
+		resolvedConfig.sourceConfig.EndpointURL,
+		resolvedConfig.roleARN,
+		accessToken,
+		roleSessionName,
+		resolvedConfig.sslVerify,
+		sessionDuration,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if result.AssumedRoleArn != "" {
+		verbosef(dependencies.stderr, verboseMode, "# Assumed role ARN: %s\n", result.AssumedRoleArn)
+	}
+
+	result.ProfileName = profileName
+	return result, nil
+}
+
+func resolveCredentialConfig(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, dependencies credentialDependencies) (*resolvedCredentialConfig, error) {
+	if profileConfig.RoleArn == "" {
 		return nil, fmt.Errorf("profile '%s': missing required 'role_arn'. Specify the IAM role ARN to assume", profileName)
+	}
+
+	sourceConfig := profileConfig
+	if profileConfig.SourceProfile != "" {
+		var err error
+		sourceConfig, err = dependencies.resolveSourceProfile(profileConfig, awsConfig, verboseMode)
+		if err != nil {
+			return nil, err
+		}
+		verbosef(dependencies.stderr, verboseMode, "# Role assumption: %s\n", profileConfig.RoleArn)
+		verbosef(dependencies.stderr, verboseMode, "# Source profile: %s\n", profileConfig.SourceProfile)
+	} else {
+		verbosef(dependencies.stderr, verboseMode, "# Direct role assumption: %s\n", profileConfig.RoleArn)
 	}
 
 	if sourceConfig.EndpointURL == "" {
 		return nil, fmt.Errorf("profile '%s': missing required 'endpoint_url'. Add endpoint_url to your profile or its source profile", profileName)
 	}
 
-	// Determine auth type first
 	authType := sourceConfig.RadosGWOIDCAuthType
 	if authType == "" {
-		authType = "device"
+		authType = defaultAuthType
 	}
 
-	// Extract required OIDC configuration from source profile (not needed for token auth)
 	if authType != "token" {
 		sourceProfileName := profileName
 		if profileConfig.SourceProfile != "" {
@@ -67,82 +136,74 @@ func GetCredentials(profileName string, profileConfig *config.ProfileConfig, aws
 		}
 	}
 
-	sslVerify := sourceConfig.RadosGWSSLVerify != "false" && sourceConfig.RadosGWSSLVerify != "0"
-
-	if verboseMode {
-		fmt.Fprintf(os.Stderr, "# Using profile: %s\n", profileName)
-		fmt.Fprintf(os.Stderr, "# RadosGW endpoint: %s\n", sourceConfig.EndpointURL)
-		if authType != "token" {
-			fmt.Fprintf(os.Stderr, "# OIDC provider: %s\n", sourceConfig.RadosGWOIDCProvider)
-		}
-		fmt.Fprintf(os.Stderr, "# Auth type: %s\n", authType)
-		fmt.Fprintf(os.Stderr, "# Session duration: %d seconds (%s)\n", int(sessionDuration.Seconds()), duration.Format(sessionDuration))
-	}
-
-	// Authenticate based on auth type
-	var accessToken string
-
-	// Get scope (default to "openid" if not specified)
 	scope := sourceConfig.RadosGWOIDCScope
 	if scope == "" {
-		scope = "openid"
+		scope = defaultScope
 	}
 
-	switch authType {
+	return &resolvedCredentialConfig{
+		sourceConfig: sourceConfig,
+		roleARN:      profileConfig.RoleArn,
+		authType:     authType,
+		scope:        scope,
+		sslVerify:    sourceConfig.RadosGWSSLVerify != "false" && sourceConfig.RadosGWSSLVerify != "0",
+	}, nil
+}
+
+func printCredentialContext(stderr io.Writer, profileName string, resolvedConfig *resolvedCredentialConfig, verboseMode bool, sessionDuration time.Duration) {
+	verbosef(stderr, verboseMode, "# Using profile: %s\n", profileName)
+	verbosef(stderr, verboseMode, "# RadosGW endpoint: %s\n", resolvedConfig.sourceConfig.EndpointURL)
+	if resolvedConfig.authType != "token" {
+		verbosef(stderr, verboseMode, "# OIDC provider: %s\n", resolvedConfig.sourceConfig.RadosGWOIDCProvider)
+	}
+	verbosef(stderr, verboseMode, "# Auth type: %s\n", resolvedConfig.authType)
+	verbosef(stderr, verboseMode, "# Session duration: %d seconds (%s)\n", int(sessionDuration.Seconds()), duration.Format(sessionDuration))
+}
+
+func authenticate(resolvedConfig *resolvedCredentialConfig, verboseMode bool, dependencies credentialDependencies) (string, error) {
+	switch resolvedConfig.authType {
 	case "token":
-		// Use token from environment variable
-		accessToken = os.Getenv("RADOSGW_OIDC_TOKEN")
+		accessToken := dependencies.getenv("RADOSGW_OIDC_TOKEN")
 		if accessToken == "" {
-			return nil, fmt.Errorf("RADOSGW_OIDC_TOKEN environment variable is required for token auth type")
+			return "", fmt.Errorf("RADOSGW_OIDC_TOKEN environment variable is required for token auth type")
 		}
-		if verboseMode {
-			fmt.Fprintf(os.Stderr, "# Using pre-existing OIDC token\n")
-		}
+		verbosef(dependencies.stderr, verboseMode, "# Using pre-existing OIDC token\n")
+		return accessToken, nil
 	case "device":
-		// Use device flow
-		if verboseMode {
-			fmt.Fprintf(os.Stderr, "# Starting device authentication flow\n")
-		}
-		accessToken, err = auth.AuthenticateDeviceFlow(sourceConfig.RadosGWOIDCProvider, sourceConfig.RadosGWOIDCClientID, scope, sourceConfig.RadosGWOIDCPKCEMethod, sslVerify, verboseMode)
+		verbosef(dependencies.stderr, verboseMode, "# Starting device authentication flow\n")
+		accessToken, err := dependencies.authenticateDevice(
+			resolvedConfig.sourceConfig.RadosGWOIDCProvider,
+			resolvedConfig.sourceConfig.RadosGWOIDCClientID,
+			resolvedConfig.scope,
+			resolvedConfig.sourceConfig.RadosGWOIDCPKCEMethod,
+			resolvedConfig.sslVerify,
+			verboseMode,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("device authentication failed: %w", err)
+			return "", fmt.Errorf("device authentication failed: %w", err)
 		}
+		return accessToken, nil
 	case "browser":
-		// Use authorization code flow with PKCE
-		if verboseMode {
-			fmt.Fprintf(os.Stderr, "# Starting browser authentication flow\n")
-		}
-		accessToken, err = auth.AuthenticateBrowserFlow(sourceConfig.RadosGWOIDCProvider, sourceConfig.RadosGWOIDCClientID, scope, sourceConfig.RadosGWOIDCPKCEMethod, sslVerify, verboseMode)
+		verbosef(dependencies.stderr, verboseMode, "# Starting browser authentication flow\n")
+		accessToken, err := dependencies.authenticateBrowser(
+			resolvedConfig.sourceConfig.RadosGWOIDCProvider,
+			resolvedConfig.sourceConfig.RadosGWOIDCClientID,
+			resolvedConfig.scope,
+			resolvedConfig.sourceConfig.RadosGWOIDCPKCEMethod,
+			resolvedConfig.sslVerify,
+			verboseMode,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("browser authentication failed: %w", err)
+			return "", fmt.Errorf("browser authentication failed: %w", err)
 		}
+		return accessToken, nil
 	default:
-		return nil, fmt.Errorf("unsupported auth type: %s (supported: device, browser, token)", authType)
+		return "", fmt.Errorf("unsupported auth type: %s (supported: device, browser, token)", resolvedConfig.authType)
 	}
+}
 
-	// Determine session name: use custom name as-is or generate timestamp-based default with prefix
-	roleSessionName := profileConfig.RoleSessionName
-	if roleSessionName == "" {
-		roleSessionName = fmt.Sprintf("radosgw-assume-%s", time.Now().UTC().Format("20060102T150405Z"))
+func verbosef(w io.Writer, enabled bool, format string, args ...any) {
+	if enabled {
+		_, _ = fmt.Fprintf(w, format, args...)
 	}
-
-	if verboseMode {
-		fmt.Fprintf(os.Stderr, "# Assuming role with web identity: %s\n", roleArn)
-		fmt.Fprintf(os.Stderr, "# Session name: %s\n", roleSessionName)
-	}
-
-	// Use STS to assume the role
-	result, err := sts.AssumeRoleWithWebIdentity(sourceConfig.EndpointURL, roleArn, accessToken, roleSessionName, sslVerify, sessionDuration)
-	if err != nil {
-		return nil, err // Error already has context from sts.formatSTSError
-	}
-
-	if verboseMode && result.AssumedRoleArn != "" {
-		fmt.Fprintf(os.Stderr, "# Assumed role ARN: %s\n", result.AssumedRoleArn)
-	}
-
-	// Set profile name for output display
-	result.ProfileName = profileName
-
-	return result, nil
 }

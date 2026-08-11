@@ -1,64 +1,74 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
-	"io"
 	"os"
-	"strings"
 
-	"github.com/manifoldco/promptui"
+	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 )
 
-// bellSkipper implements an io.WriteCloser that skips the terminal bell character.
-type bellSkipper struct {
-	w io.Writer
-}
+// ErrSelectionCancelled indicates that the interactive selector was dismissed.
+var ErrSelectionCancelled = errors.New("profile selection cancelled")
 
-func (bs *bellSkipper) Write(b []byte) (int, error) {
-	const charBell = 7 // bell control character
-	if len(b) == 1 && b[0] == charBell {
-		return 0, nil
-	}
-	return bs.w.Write(b)
-}
-
-func (bs *bellSkipper) Close() error {
-	return nil
-}
-
-// SelectProfileInteractively shows an interactive profile selector
+// SelectProfileInteractively shows an interactive profile selector.
 func SelectProfileInteractively(profiles []string) (string, error) {
 	if len(profiles) == 0 {
 		return "", fmt.Errorf("no profiles found in ~/.aws/config")
 	}
 
-	templates := &promptui.SelectTemplates{
-		Label:    "{{ . }}",
-		Active:   "{{ \">\" | cyan }} {{ . | cyan | bold }}",
-		Inactive: "   {{ . | white }}",
-		Selected: "\U00002713 {{ . | cyan | bold }}",
-	}
+	keyMap := newProfileSelectorKeyMap()
+	var result string
+	selector := huh.NewSelect[string]().
+		Title("Please select the profile you would like to assume:").
+		Description("Press / to filter, Esc or Ctrl+C to cancel.").
+		Options(huh.NewOptions(profiles...)...).
+		Value(&result).
+		Height(min(len(profiles), 10))
 
-	prompt := promptui.Select{
-		Label:        "Please select the profile you would like to assume:",
-		Items:        profiles,
-		Templates:    templates,
-		Size:         10,
-		HideHelp:     false,
-		Stdout:       &bellSkipper{os.Stderr},
-		HideSelected: false,
-		Searcher: func(input string, index int) bool {
-			profile := profiles[index]
-			name := strings.ReplaceAll(strings.ToLower(profile), " ", "")
-			input = strings.ReplaceAll(strings.ToLower(input), " ", "")
-			return strings.Contains(name, input)
-		},
-	}
-
-	_, result, err := prompt.Run()
+	err := huh.NewForm(huh.NewGroup(selector)).
+		WithKeyMap(keyMap).
+		WithTheme(huh.ThemeFunc(profileSelectorTheme)).
+		WithOutput(os.Stderr).
+		Run()
 	if err != nil {
-		return "", err
+		return "", normalizeSelectionError(err)
 	}
 
 	return result, nil
+}
+
+func profileSelectorTheme(isDark bool) *huh.Styles {
+	styles := huh.ThemeCharm(isDark)
+	cyan := lipgloss.Color("6")
+	normal := lipgloss.Color("7")
+	muted := lipgloss.Color("8")
+
+	styles.Focused.Title = styles.Focused.Title.Foreground(normal).Bold(false)
+	styles.Focused.Description = styles.Focused.Description.Foreground(muted)
+	styles.Focused.SelectSelector = styles.Focused.SelectSelector.Foreground(cyan)
+	styles.Focused.SelectedOption = styles.Focused.SelectedOption.Foreground(cyan).Bold(true)
+	styles.Focused.UnselectedOption = styles.Focused.UnselectedOption.Foreground(normal)
+	styles.Focused.TextInput.Cursor = styles.Focused.TextInput.Cursor.Foreground(cyan)
+	styles.Focused.TextInput.Prompt = styles.Focused.TextInput.Prompt.Foreground(cyan)
+	styles.Focused.TextInput.Text = styles.Focused.TextInput.Text.Foreground(normal)
+
+	styles.Group.Title = styles.Focused.Title
+	styles.Group.Description = styles.Focused.Description
+	return styles
+}
+
+func newProfileSelectorKeyMap() *huh.KeyMap {
+	keyMap := huh.NewDefaultKeyMap()
+	keyMap.Quit.SetKeys("ctrl+c", "esc")
+	keyMap.Quit.SetHelp("esc/ctrl+c", "cancel")
+	return keyMap
+}
+
+func normalizeSelectionError(err error) error {
+	if errors.Is(err, huh.ErrUserAborted) {
+		return ErrSelectionCancelled
+	}
+	return err
 }

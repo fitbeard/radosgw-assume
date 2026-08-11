@@ -1,10 +1,14 @@
 package ui
 
 import (
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/fitbeard/radosgw-assume/internal/config"
+
+	"charm.land/huh/v2"
 )
 
 func TestShellQuote(t *testing.T) {
@@ -46,6 +50,26 @@ func TestSelectProfileInteractively(t *testing.T) {
 	// Test error message content
 	if !strings.Contains(err.Error(), "no profiles found") {
 		t.Errorf("Error message should mention 'no profiles found', got: %s", err.Error())
+	}
+}
+
+func TestNormalizeSelectionError(t *testing.T) {
+	if err := normalizeSelectionError(huh.ErrUserAborted); !errors.Is(err, ErrSelectionCancelled) {
+		t.Errorf("normalizeSelectionError() = %v, want ErrSelectionCancelled", err)
+	}
+
+	want := errors.New("selection failure")
+	if err := normalizeSelectionError(want); !errors.Is(err, want) {
+		t.Errorf("normalizeSelectionError() = %v, want original error", err)
+	}
+}
+
+func TestProfileSelectorCancellationKeys(t *testing.T) {
+	keys := newProfileSelectorKeyMap().Quit.Keys()
+	for _, want := range []string{"ctrl+c", "esc"} {
+		if !slices.Contains(keys, want) {
+			t.Errorf("selector quit keys = %v, want %q", keys, want)
+		}
 	}
 }
 

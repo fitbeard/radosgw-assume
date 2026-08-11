@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fitbeard/radosgw-assume/internal/config"
+	"github.com/fitbeard/radosgw-assume/internal/ui"
 
 	"gopkg.in/ini.v1"
 )
@@ -244,6 +245,23 @@ func TestCLIRunnerInteractiveProfile(t *testing.T) {
 
 	if exitCode := runner.run("radosgw-assume", nil); exitCode != 0 {
 		t.Fatalf("run() exit code = %d, want 0; stderr: %s", exitCode, stderr.String())
+	}
+}
+
+func TestCLIRunnerInteractiveCancellation(t *testing.T) {
+	runner, stdout, stderr := newTestCLIRunner(t)
+	runner.loadAWSConfig = func() (*ini.File, error) { return ini.Empty(), nil }
+	runner.getProfiles = func(*ini.File) []string { return []string{"profile"} }
+	runner.selectProfile = func([]string) (string, error) { return "", ui.ErrSelectionCancelled }
+
+	if exitCode := runner.run("radosgw-assume", nil); exitCode != 0 {
+		t.Errorf("run() exit code = %d, want 0", exitCode)
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("run() stdout = %q, want empty", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("run() stderr = %q, want empty", stderr.String())
 	}
 }
 
