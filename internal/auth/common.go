@@ -15,6 +15,8 @@ import (
 const (
 	// AuthTimeout is the maximum time to wait for user authentication
 	AuthTimeout = 60 * time.Second
+	// OIDCRequestTimeout bounds each request to the identity provider.
+	OIDCRequestTimeout = 30 * time.Second
 	// ProgressInterval is how often to show progress indication
 	ProgressInterval = 5 * time.Second
 	// DefaultPollingInterval is the default interval for device flow polling
@@ -39,9 +41,13 @@ const (
 	CallbackFallbackPort = 18088
 )
 
-// NewHTTPClient creates an HTTP client with optional SSL verification
+// NewHTTPClient creates a bounded HTTP client with optional SSL verification.
 func NewHTTPClient(sslVerify bool) *http.Client {
-	client := &http.Client{}
+	return newHTTPClient(sslVerify, OIDCRequestTimeout)
+}
+
+func newHTTPClient(sslVerify bool, requestTimeout time.Duration) *http.Client {
+	client := &http.Client{Timeout: requestTimeout}
 	if !sslVerify {
 		client.Transport = &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
