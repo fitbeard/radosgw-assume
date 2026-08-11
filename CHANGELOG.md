@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.5.0](https://github.com/fitbeard/radosgw-assume/compare/v1.4.4...v1.5.0) (2026-08-11)
+
+
+### Features
+
+* cleanup and switch to golang 1.26 ([#62](https://github.com/fitbeard/radosgw-assume/issues/62)) ([a663df8](https://github.com/fitbeard/radosgw-assume/commit/a663df8f33131ca4e71627a27c929b64d4c5da9e))
+* make AWS config loading deterministic ([#71](https://github.com/fitbeard/radosgw-assume/issues/71)) ([ac06ffd](https://github.com/fitbeard/radosgw-assume/commit/ac06ffd68da2f3052cefaf9d9b0870759f490b6e))
+* make browser authentication flow testable ([#68](https://github.com/fitbeard/radosgw-assume/issues/68)) ([7c1d8f4](https://github.com/fitbeard/radosgw-assume/commit/7c1d8f406d5943c80617bd7eb1a1fd903502eb52))
+* make device authentication flow testable ([#69](https://github.com/fitbeard/radosgw-assume/issues/69)) ([024876e](https://github.com/fitbeard/radosgw-assume/commit/024876eebf7022598712bd29a658fca4526775a8))
+
+
+### Bug Fixes
+
+* bound OIDC and STS request durations ([#65](https://github.com/fitbeard/radosgw-assume/issues/65)) ([6a5bdd2](https://github.com/fitbeard/radosgw-assume/commit/6a5bdd2ad4bb3f29a4dc2bd65bebd95adf7cc297))
+* close device polling responses promptly and set PKCE method for device auth ([#63](https://github.com/fitbeard/radosgw-assume/issues/63)) ([7cebbe2](https://github.com/fitbeard/radosgw-assume/commit/7cebbe2fd1b2a2f5c90ffd71b1f24ad2782f2a53))
+* harden browser callback lifecycle ([#64](https://github.com/fitbeard/radosgw-assume/issues/64)) ([5054241](https://github.com/fitbeard/radosgw-assume/commit/50542416fa3d777b5214d5cfffdca7362460e822))
+* make progress indicator shutdown idempotent ([#70](https://github.com/fitbeard/radosgw-assume/issues/70)) ([3fe03c4](https://github.com/fitbeard/radosgw-assume/commit/3fe03c4d84055222c8dc69bfa5610c8286958a70))
+
+
+### Documentation
+
+* fix AWS config keys in README ([#72](https://github.com/fitbeard/radosgw-assume/issues/72)) ([ea57a1f](https://github.com/fitbeard/radosgw-assume/commit/ea57a1f55bd4b7fd1e87ca982cec78d2e87bcaff))
+
 ## [1.4.4](https://github.com/fitbeard/radosgw-assume/compare/v1.4.3...v1.4.4) (2026-08-06)
 
 
