@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // Note: These tests focus on struct validation and type checking
@@ -102,7 +103,7 @@ func TestAuthenticateDeviceFlow(t *testing.T) {
 						UserCode:        "TEST-CODE",
 						VerificationURI: serverURL(r),
 						ExpiresIn:       600,
-						Interval:        -1,
+						Interval:        1,
 					})
 				case "/protocol/openid-connect/token":
 					requestNumber := tokenRequests.Add(1)
@@ -135,7 +136,28 @@ func TestAuthenticateDeviceFlow(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 
-			token, err := AuthenticateDeviceFlow(server.URL, "test-client", "openid profile", pkceMethod, true, false)
+			currentTime := time.Unix(0, 0)
+			dependencies := newDeviceFlowDependencies()
+			dependencies.stderr = io.Discard
+			dependencies.newHTTPClient = func(sslVerify bool) *http.Client {
+				if !sslVerify {
+					t.Error("sslVerify = false, want true")
+				}
+				return server.Client()
+			}
+			dependencies.now = func() time.Time { return currentTime }
+			dependencies.sleep = func(duration time.Duration) { currentTime = currentTime.Add(duration) }
+			dependencies.newProgress = func() deviceFlowProgress { return &testDeviceFlowProgress{} }
+
+			token, err := authenticateDeviceFlow(
+				server.URL,
+				"test-client",
+				"openid profile",
+				pkceMethod,
+				true,
+				false,
+				dependencies,
+			)
 			if err != nil {
 				t.Fatalf("AuthenticateDeviceFlow() error = %v", err)
 			}
