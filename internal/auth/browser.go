@@ -26,101 +26,150 @@ type browserCallbackResult struct {
 	errorDescription string
 }
 
+type browserCallbackServer struct {
+	port     int
+	errors   <-chan error
+	shutdown func(context.Context) error
+	close    func() error
+}
+
+type browserFlowTimer interface {
+	Done() <-chan time.Time
+	Stop()
+}
+
+type browserFlowProgress interface {
+	Stop()
+	StopQuiet()
+}
+
+type browserFlowDependencies struct {
+	stderr io.Writer
+
+	generateRandomString func(int) (string, error)
+	generatePKCE         func(string) (string, string, string, error)
+	startCallbackServer  func(chan<- browserCallbackResult) (*browserCallbackServer, error)
+	openBrowser          func(string) error
+	newHTTPClient        func(bool) *http.Client
+	newTimer             func(time.Duration) browserFlowTimer
+	newProgress          func() browserFlowProgress
+}
+
+type realBrowserFlowTimer struct {
+	timer *time.Timer
+}
+
+func (timer *realBrowserFlowTimer) Done() <-chan time.Time {
+	return timer.timer.C
+}
+
+func (timer *realBrowserFlowTimer) Stop() {
+	timer.timer.Stop()
+}
+
+func newBrowserFlowDependencies() browserFlowDependencies {
+	return browserFlowDependencies{
+		stderr:               os.Stderr,
+		generateRandomString: GenerateRandomString,
+		generatePKCE:         GeneratePKCE,
+		startCallbackServer: func(results chan<- browserCallbackResult) (*browserCallbackServer, error) {
+			return startBrowserCallbackServer(
+				callbackListenHost,
+				[]int{CallbackPort, CallbackFallbackPort},
+				results,
+			)
+		},
+		openBrowser:   openBrowser,
+		newHTTPClient: NewHTTPClient,
+		newTimer: func(timeout time.Duration) browserFlowTimer {
+			return &realBrowserFlowTimer{timer: time.NewTimer(timeout)}
+		},
+		newProgress: func() browserFlowProgress { return NewProgressIndicator() },
+	}
+}
+
 // AuthenticateBrowserFlow performs OIDC authorization code flow with PKCE.
 func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool) (string, error) {
+	return authenticateBrowserFlow(
+		providerURL,
+		clientID,
+		scope,
+		pkceMethod,
+		sslVerify,
+		verboseMode,
+		newBrowserFlowDependencies(),
+	)
+}
+
+func authenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, dependencies browserFlowDependencies) (string, error) {
 	tokenEndpoint := fmt.Sprintf("%s/protocol/openid-connect/token", providerURL)
 	authEndpoint := fmt.Sprintf("%s/protocol/openid-connect/auth", providerURL)
 
-	state, err := GenerateRandomString(32)
+	state, err := dependencies.generateRandomString(32)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
-	codeVerifier, codeChallenge, resolvedPKCEMethod, err := GeneratePKCE(pkceMethod)
+	codeVerifier, codeChallenge, resolvedPKCEMethod, err := dependencies.generatePKCE(pkceMethod)
 	if err != nil {
 		return "", err
 	}
 
 	callbackResults := make(chan browserCallbackResult, 1)
-	listener, callbackPort, err := listenOnCallbackPorts(callbackListenHost, CallbackPort, CallbackFallbackPort)
+	callbackServer, err := dependencies.startCallbackServer(callbackResults)
 	if err != nil {
 		return "", fmt.Errorf("both callback ports (%d and %d) are in use, please free one of them: %w", CallbackPort, CallbackFallbackPort, err)
 	}
-	if callbackPort == CallbackFallbackPort && verboseMode {
-		fmt.Fprintf(os.Stderr, "# Port %d is busy, using fallback port %d...\n", CallbackPort, CallbackFallbackPort)
+	defer func() { _ = callbackServer.close() }()
+
+	if callbackServer.port == CallbackFallbackPort && verboseMode {
+		_, _ = fmt.Fprintf(dependencies.stderr, "# Port %d is busy, using fallback port %d...\n", CallbackPort, CallbackFallbackPort)
 	}
 
-	redirectURI := fmt.Sprintf("http://localhost:%d/callback", callbackPort)
-	server := &http.Server{
-		Handler:           newBrowserCallbackHandler(callbackResults),
-		ReadHeaderTimeout: CallbackReadHeaderTimeout,
-	}
+	redirectURI := fmt.Sprintf("http://localhost:%d/callback", callbackServer.port)
+	authURL := buildBrowserAuthorizationURL(
+		authEndpoint,
+		clientID,
+		redirectURI,
+		scope,
+		state,
+		codeChallenge,
+		resolvedPKCEMethod,
+	)
 
-	// The listener is already bound, so another process cannot claim the port
-	// between availability detection and Serve.
-	serverError := make(chan error, 1)
-	go func() {
-		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serverError <- err
-		}
-	}()
-	defer func() { _ = server.Close() }()
-
-	// Build authorization URL
-	authParams := url.Values{}
-	authParams.Set("client_id", clientID)
-	authParams.Set("redirect_uri", redirectURI)
-	authParams.Set("response_type", "code")
-	authParams.Set("scope", scope)
-	authParams.Set("state", state)
-	authParams.Set("code_challenge", codeChallenge)
-	authParams.Set("code_challenge_method", resolvedPKCEMethod)
-
-	authURL := authEndpoint + "?" + authParams.Encode()
-
-	fmt.Fprintf(os.Stderr, "#\n")
-	fmt.Fprintf(os.Stderr, "# 🔐 BROWSER AUTHENTICATION REQUIRED\n")
-	fmt.Fprintf(os.Stderr, "#\n")
-	fmt.Fprintf(os.Stderr, "# Auth URL: %s\n", authURL)
-	fmt.Fprintf(os.Stderr, "# Opening browser for authentication...\n")
-
-	// Try to open browser
-	if err := openBrowser(authURL); err != nil {
-		fmt.Fprintf(os.Stderr, "# ⚠ Could not open browser automatically: %v\n", err)
-		fmt.Fprintf(os.Stderr, "#\n")
-		fmt.Fprintf(os.Stderr, "# 📋 Please manually open this URL in your browser:\n")
-		fmt.Fprintf(os.Stderr, "# %s\n", authURL)
+	printBrowserAuthenticationInstructions(dependencies.stderr, authURL)
+	if err := dependencies.openBrowser(authURL); err != nil {
+		_, _ = fmt.Fprintf(dependencies.stderr, "# ⚠ Could not open browser automatically: %v\n", err)
+		_, _ = fmt.Fprintln(dependencies.stderr, "#")
+		_, _ = fmt.Fprintln(dependencies.stderr, "# 📋 Please manually open this URL in your browser:")
+		_, _ = fmt.Fprintf(dependencies.stderr, "# %s\n", authURL)
 	} else {
-		fmt.Fprintf(os.Stderr, "# ✓ Browser opened successfully\n")
+		_, _ = fmt.Fprintln(dependencies.stderr, "# ✓ Browser opened successfully")
 	}
-
-	fmt.Fprintf(os.Stderr, "#\n")
-	fmt.Fprintf(os.Stderr, "# ⏰ You have 60 seconds to complete authentication\n")
-	fmt.Fprintf(os.Stderr, "#\n")
-	fmt.Fprintf(os.Stderr, "# Waiting for authentication...\n")
+	printBrowserAuthenticationWait(dependencies.stderr)
 
 	// Wait for callback with timeout.
-	timeout := time.NewTimer(AuthTimeout)
+	timeout := dependencies.newTimer(AuthTimeout)
 	defer timeout.Stop()
 
 	// Progress indication
-	progress := NewProgressIndicator()
+	progress := dependencies.newProgress()
 
 	var callbackResult browserCallbackResult
 	select {
 	case callbackResult = <-callbackResults:
 		// Callback received
 		progress.Stop()
-	case err := <-serverError:
+	case err := <-callbackServer.errors:
 		progress.StopQuiet()
 		return "", fmt.Errorf("callback server failed: %w", err)
-	case <-timeout.C:
+	case <-timeout.Done():
 		progress.StopQuiet()
 		return "", fmt.Errorf("authentication timed out after %v", AuthTimeout)
 	}
 
 	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), CallbackShutdownTimeout)
 	defer cancelShutdown()
-	if err := server.Shutdown(shutdownContext); err != nil {
+	if err := callbackServer.shutdown(shutdownContext); err != nil {
 		return "", fmt.Errorf("failed to stop callback server: %w", err)
 	}
 
@@ -138,12 +187,8 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 	}
 
 	if verboseMode {
-		fmt.Fprintf(os.Stderr, "# ✓ Authentication successful!\n")
-	}
-
-	// Exchange authorization code for tokens
-	if verboseMode {
-		fmt.Fprintf(os.Stderr, "# Exchanging authorization code for tokens...\n")
+		_, _ = fmt.Fprintln(dependencies.stderr, "# ✓ Authentication successful!")
+		_, _ = fmt.Fprintln(dependencies.stderr, "# Exchanging authorization code for tokens...")
 	}
 
 	tokenData := url.Values{}
@@ -153,21 +198,89 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 	tokenData.Set("redirect_uri", redirectURI)
 	tokenData.Set("code_verifier", codeVerifier)
 
-	client := NewHTTPClient(sslVerify)
+	accessToken, err := exchangeBrowserAuthorizationCode(
+		dependencies.newHTTPClient(sslVerify),
+		tokenEndpoint,
+		tokenData,
+		providerURL,
+	)
+	if err != nil {
+		return "", err
+	}
 
-	resp, err := client.PostForm(tokenEndpoint, tokenData)
+	if verboseMode {
+		_, _ = fmt.Fprintln(dependencies.stderr, "# ✓ Successfully obtained access token")
+	}
+
+	return accessToken, nil
+}
+
+func startBrowserCallbackServer(host string, ports []int, results chan<- browserCallbackResult) (*browserCallbackServer, error) {
+	listener, port, err := listenOnCallbackPorts(host, ports...)
+	if err != nil {
+		return nil, err
+	}
+
+	server := &http.Server{
+		Handler:           newBrowserCallbackHandler(results),
+		ReadHeaderTimeout: CallbackReadHeaderTimeout,
+	}
+	serverErrors := make(chan error, 1)
+	go func() {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErrors <- err
+		}
+	}()
+
+	return &browserCallbackServer{
+		port:     port,
+		errors:   serverErrors,
+		shutdown: server.Shutdown,
+		close:    server.Close,
+	}, nil
+}
+
+func buildBrowserAuthorizationURL(authEndpoint, clientID, redirectURI, scope, state, codeChallenge, pkceMethod string) string {
+	authParams := url.Values{}
+	authParams.Set("client_id", clientID)
+	authParams.Set("redirect_uri", redirectURI)
+	authParams.Set("response_type", "code")
+	authParams.Set("scope", scope)
+	authParams.Set("state", state)
+	authParams.Set("code_challenge", codeChallenge)
+	authParams.Set("code_challenge_method", pkceMethod)
+	return authEndpoint + "?" + authParams.Encode()
+}
+
+func printBrowserAuthenticationInstructions(stderr io.Writer, authURL string) {
+	_, _ = fmt.Fprintln(stderr, "#")
+	_, _ = fmt.Fprintln(stderr, "# 🔐 BROWSER AUTHENTICATION REQUIRED")
+	_, _ = fmt.Fprintln(stderr, "#")
+	_, _ = fmt.Fprintf(stderr, "# Auth URL: %s\n", authURL)
+	_, _ = fmt.Fprintln(stderr, "# Opening browser for authentication...")
+}
+
+func printBrowserAuthenticationWait(stderr io.Writer) {
+	_, _ = fmt.Fprintln(stderr, "#")
+	_, _ = fmt.Fprintln(stderr, "# ⏰ You have 60 seconds to complete authentication")
+	_, _ = fmt.Fprintln(stderr, "#")
+	_, _ = fmt.Fprintln(stderr, "# Waiting for authentication...")
+}
+
+func exchangeBrowserAuthorizationCode(client *http.Client, tokenEndpoint string, tokenData url.Values, providerURL string) (string, error) {
+	response, err := client.PostForm(tokenEndpoint, tokenData)
 	if err != nil {
 		return "", fmt.Errorf("token exchange failed: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() { _ = response.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("token exchange failed with status %d: %s", resp.StatusCode, string(body))
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		return "", fmt.Errorf("token exchange failed with status %d: %s", response.StatusCode, string(body))
 	}
 
 	var tokenResponse TokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tokenResponse); err != nil {
+	if err := json.NewDecoder(response.Body).Decode(&tokenResponse); err != nil {
 		return "", fmt.Errorf("failed to parse token response: %w", err)
 	}
 
@@ -177,10 +290,6 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 
 	if tokenResponse.AccessToken == "" {
 		return "", fmt.Errorf("no access token received")
-	}
-
-	if verboseMode {
-		fmt.Fprintf(os.Stderr, "# ✓ Successfully obtained access token\n")
 	}
 
 	return tokenResponse.AccessToken, nil
