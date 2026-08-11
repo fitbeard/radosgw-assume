@@ -183,8 +183,12 @@ func TestConstants(t *testing.T) {
 		t.Errorf("DefaultPollingInterval should be positive, got %d", DefaultPollingInterval)
 	}
 
-	if ServerStartTimeout <= 0 {
-		t.Errorf("ServerStartTimeout should be positive, got %v", ServerStartTimeout)
+	if CallbackReadHeaderTimeout <= 0 {
+		t.Errorf("CallbackReadHeaderTimeout should be positive, got %v", CallbackReadHeaderTimeout)
+	}
+
+	if CallbackShutdownTimeout <= 0 {
+		t.Errorf("CallbackShutdownTimeout should be positive, got %v", CallbackShutdownTimeout)
 	}
 
 	if CallbackPort <= 0 || CallbackPort > 65535 {

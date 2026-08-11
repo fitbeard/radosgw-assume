@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -11,34 +13,23 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"time"
 )
+
+const callbackListenHost = "127.0.0.1"
+
+type browserCallbackResult struct {
+	code             string
+	state            string
+	errorCode        string
+	errorDescription string
+}
 
 // AuthenticateBrowserFlow performs OIDC authorization code flow with PKCE.
 func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool) (string, error) {
 	tokenEndpoint := fmt.Sprintf("%s/protocol/openid-connect/token", providerURL)
 	authEndpoint := fmt.Sprintf("%s/protocol/openid-connect/auth", providerURL)
-
-	// OAuth2/PKCE setup
-	var redirectURI string
-	var server *http.Server
-
-	// Try primary port first, fallback to alternative if busy
-	for _, tryPort := range []int{CallbackPort, CallbackFallbackPort} {
-		redirectURI = fmt.Sprintf("http://localhost:%d/callback", tryPort)
-		server = &http.Server{Addr: fmt.Sprintf(":%d", tryPort)}
-
-		// Test if port is available
-		if err := testPortAvailability(tryPort); err == nil {
-			break
-		} else if tryPort == CallbackFallbackPort {
-			// Both ports failed
-			return "", fmt.Errorf("both callback ports (%d and %d) are in use, please free one of them", CallbackPort, CallbackFallbackPort)
-		}
-		if verboseMode {
-			fmt.Fprintf(os.Stderr, "# Port %d is busy, trying fallback port %d...\n", tryPort, CallbackFallbackPort)
-		}
-	}
 
 	state, err := GenerateRandomString(32)
 	if err != nil {
@@ -49,114 +40,30 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 		return "", err
 	}
 
-	// Set up callback server
-	authCode := ""
-	authState := ""
-	callbackError := ""
-	done := make(chan bool)
+	callbackResults := make(chan browserCallbackResult, 1)
+	listener, callbackPort, err := listenOnCallbackPorts(callbackListenHost, CallbackPort, CallbackFallbackPort)
+	if err != nil {
+		return "", fmt.Errorf("both callback ports (%d and %d) are in use, please free one of them: %w", CallbackPort, CallbackFallbackPort, err)
+	}
+	if callbackPort == CallbackFallbackPort && verboseMode {
+		fmt.Fprintf(os.Stderr, "# Port %d is busy, using fallback port %d...\n", CallbackPort, CallbackFallbackPort)
+	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		query := r.URL.Query()
+	redirectURI := fmt.Sprintf("http://localhost:%d/callback", callbackPort)
+	server := &http.Server{
+		Handler:           newBrowserCallbackHandler(callbackResults),
+		ReadHeaderTimeout: CallbackReadHeaderTimeout,
+	}
 
-		if errParam := query.Get("error"); errParam != "" {
-			callbackError = errParam
-			errorDesc := query.Get("error_description")
-
-			w.Header().Set("Content-Type", "text/html")
-			w.WriteHeader(400)
-			_, _ = fmt.Fprintf(w, `
-			<html lang="en">
-			<head>
-				<meta charset="UTF-8">
-				<title>Authentication Failed</title>
-				<style>
-					body {
-						background-color: #eee;
-						margin: 0;
-						padding: 0;
-						font-family: sans-serif;
-					}
-					.placeholder {
-						margin: 2em;
-						padding: 2em;
-						background-color: #fff;
-						border-radius: 1em;
-					}
-				</style>
-			</head>
-			<body>
-				<div class="placeholder">
-					<h1>Authentication Failed</h1>
-					<p>Error: %s</p>
-					<p>Description: %s</p>
-					<p>You can close this window and try again.</p>
-				</div>
-			</body>
-			</html>
-			`, errParam, errorDesc)
-			done <- true
-			return
-		}
-
-		code := query.Get("code")
-		receivedState := query.Get("state")
-
-		if code != "" && receivedState != "" {
-			authCode = code
-			authState = receivedState
-
-			w.Header().Set("Content-Type", "text/html")
-			_, _ = fmt.Fprintf(w, `
-			<html lang="en">
-			<head>
-				<meta charset="UTF-8">
-				<title>Authentication Successful</title>
-				<script>setTimeout(function(){window.close()}, 3000);</script>
-				<style>
-					body {
-						background-color: #eee;
-						margin: 0;
-						padding: 0;
-						font-family: sans-serif;
-					}
-					.placeholder {
-						margin: 2em;
-						padding: 2em;
-						background-color: #fff;
-						border-radius: 1em;
-					}
-				</style>
-			</head>
-			<body>
-				<div class="placeholder">
-					<h1>Authentication Successful</h1>
-					<p>You have successfully authenticated with RadosGW. You can now close this window and return to your terminal.</p>
-				</div>
-			</body>
-			</html>
-			`)
-			done <- true
-		}
-	})
-
-	server.Handler = mux
-
-	// Start local server
+	// The listener is already bound, so another process cannot claim the port
+	// between availability detection and Serve.
 	serverError := make(chan error, 1)
 	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverError <- err
 		}
 	}()
-
-	// Give server a moment to start
-	select {
-	case err := <-serverError:
-		return "", fmt.Errorf("callback server failed to start: %w", err)
-	case <-time.After(ServerStartTimeout):
-		// Server started successfully
-	}
+	defer func() { _ = server.Close() }()
 
 	// Build authorization URL
 	authParams := url.Values{}
@@ -191,36 +98,42 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 	fmt.Fprintf(os.Stderr, "#\n")
 	fmt.Fprintf(os.Stderr, "# Waiting for authentication...\n")
 
-	// Wait for callback with timeout
-	timeout := time.After(AuthTimeout)
+	// Wait for callback with timeout.
+	timeout := time.NewTimer(AuthTimeout)
+	defer timeout.Stop()
 
 	// Progress indication
 	progress := NewProgressIndicator()
 
+	var callbackResult browserCallbackResult
 	select {
-	case <-done:
+	case callbackResult = <-callbackResults:
 		// Callback received
 		progress.Stop()
-	case <-timeout:
+	case err := <-serverError:
 		progress.StopQuiet()
-		_ = server.Shutdown(context.Background())
+		return "", fmt.Errorf("callback server failed: %w", err)
+	case <-timeout.C:
+		progress.StopQuiet()
 		return "", fmt.Errorf("authentication timed out after %v", AuthTimeout)
 	}
 
-	// Shutdown server
-	_ = server.Shutdown(context.Background())
-
-	if callbackError != "" {
-		// callbackError contains the error code, error_description was shown in browser
-		return "", FormatOIDCError(callbackError, "", providerURL)
+	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), CallbackShutdownTimeout)
+	defer cancelShutdown()
+	if err := server.Shutdown(shutdownContext); err != nil {
+		return "", fmt.Errorf("failed to stop callback server: %w", err)
 	}
 
-	if authCode == "" {
+	if callbackResult.errorCode != "" {
+		return "", FormatOIDCError(callbackResult.errorCode, callbackResult.errorDescription, providerURL)
+	}
+
+	if callbackResult.code == "" {
 		return "", fmt.Errorf("no authorization code received")
 	}
 
 	// Validate state parameter
-	if authState != state {
+	if callbackResult.state != state {
 		return "", fmt.Errorf("security error: state parameter mismatch")
 	}
 
@@ -236,7 +149,7 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 	tokenData := url.Values{}
 	tokenData.Set("grant_type", "authorization_code")
 	tokenData.Set("client_id", clientID)
-	tokenData.Set("code", authCode)
+	tokenData.Set("code", callbackResult.code)
 	tokenData.Set("redirect_uri", redirectURI)
 	tokenData.Set("code_verifier", codeVerifier)
 
@@ -273,14 +186,122 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 	return tokenResponse.AccessToken, nil
 }
 
-// Helper functions
-func testPortAvailability(port int) error {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return err
+func listenOnCallbackPorts(host string, ports ...int) (net.Listener, int, error) {
+	if len(ports) == 0 {
+		return nil, 0, fmt.Errorf("no callback ports configured")
 	}
-	_ = ln.Close()
-	return nil
+
+	var listenErrors []error
+	for _, port := range ports {
+		listener, err := net.Listen("tcp4", net.JoinHostPort(host, strconv.Itoa(port)))
+		if err != nil {
+			listenErrors = append(listenErrors, fmt.Errorf("port %d: %w", port, err))
+			continue
+		}
+
+		boundPort := listener.Addr().(*net.TCPAddr).Port
+		return listener, boundPort, nil
+	}
+
+	return nil, 0, errors.Join(listenErrors...)
+}
+
+func newBrowserCallbackHandler(results chan<- browserCallbackResult) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+
+		if errorCode := query.Get("error"); errorCode != "" {
+			errorDescription := query.Get("error_description")
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = fmt.Fprintf(w, `
+			<html lang="en">
+			<head>
+				<meta charset="UTF-8">
+				<title>Authentication Failed</title>
+				<style>
+					body {
+						background-color: #eee;
+						margin: 0;
+						padding: 0;
+						font-family: sans-serif;
+					}
+					.placeholder {
+						margin: 2em;
+						padding: 2em;
+						background-color: #fff;
+						border-radius: 1em;
+					}
+				</style>
+			</head>
+			<body>
+				<div class="placeholder">
+					<h1>Authentication Failed</h1>
+					<p>Error: %s</p>
+					<p>Description: %s</p>
+					<p>You can close this window and try again.</p>
+				</div>
+			</body>
+			</html>
+			`, html.EscapeString(errorCode), html.EscapeString(errorDescription))
+			deliverBrowserCallbackResult(results, browserCallbackResult{
+				errorCode:        errorCode,
+				errorDescription: errorDescription,
+			})
+			return
+		}
+
+		code := query.Get("code")
+		state := query.Get("state")
+		if code == "" || state == "" {
+			http.Error(w, "missing code or state", http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = fmt.Fprint(w, `
+			<html lang="en">
+			<head>
+				<meta charset="UTF-8">
+				<title>Authentication Successful</title>
+				<script>setTimeout(function(){window.close()}, 3000);</script>
+				<style>
+					body {
+						background-color: #eee;
+						margin: 0;
+						padding: 0;
+						font-family: sans-serif;
+					}
+					.placeholder {
+						margin: 2em;
+						padding: 2em;
+						background-color: #fff;
+						border-radius: 1em;
+					}
+				</style>
+			</head>
+			<body>
+				<div class="placeholder">
+					<h1>Authentication Successful</h1>
+					<p>You have successfully authenticated with RadosGW. You can now close this window and return to your terminal.</p>
+				</div>
+			</body>
+			</html>
+			`)
+		deliverBrowserCallbackResult(results, browserCallbackResult{code: code, state: state})
+	})
+
+	return mux
+}
+
+func deliverBrowserCallbackResult(results chan<- browserCallbackResult, result browserCallbackResult) {
+	select {
+	case results <- result:
+	default:
+		// A callback has already completed the flow. Never block a duplicate or
+		// late browser request while the server is shutting down.
+	}
 }
 
 func openBrowser(url string) error {
