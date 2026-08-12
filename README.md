@@ -29,7 +29,7 @@ Ceph RadosGW supports OIDC for authentication, but the integration workflow is c
 - ✅ **Supports multiple OIDC flows** - Device flow for CI/CD, browser flow for interactive use
 - ✅ **Handles security properly** - PKCE, state validation, secure token storage
 - ✅ **Works everywhere** - CI/CD pipelines, developer workstations, shell scripts
-- ✅ **Shell integration** - Export credentials or run one command without `eval`
+- ✅ **Shell integration** - Export credentials, run one command, or start an authenticated shell
 - ✅ **Zero long-lived secrets** - All credentials are temporary and auto-expire
 
 ## What Does It Do?
@@ -115,6 +115,7 @@ Download the latest release from [GitHub Releases](https://github.com/fitbeard/r
 radosgw-assume -h
 Usage: radosgw-assume [OPTIONS]
        radosgw-assume exec [OPTIONS] -- COMMAND [ARG...]
+       radosgw-assume shell [OPTIONS]
        radosgw-assume (interactive profile selection)
 
 Options:
@@ -126,9 +127,11 @@ Options:
                             Formats: '3600' (seconds), '60m' (minutes), '1h' (hours)
   -s, --session NAME        Session name (default: radosgw-assume-TIMESTAMP)
                             Only alphanumeric characters and dashes allowed
+      --no-prompt           Keep the original prompt in an authenticated shell
 
 Commands:
   exec                      Run a command with temporary credentials
+  shell                     Start an interactive shell with temporary credentials
   version                   Show version information
 
 Examples:
@@ -139,8 +142,10 @@ Examples:
   radosgw-assume -d 30m -p myprofile            # 30-minute session duration
   radosgw-assume -d 15m -p myprofile            # 15-minute session duration (minimum)
   radosgw-assume -s my-session -p myprofile     # Custom session name
-  radosgw-assume exec -- aws s3 ls              # Run once
-  radosgw-assume exec -p myprofile -- aws s3 ls # Select profile, then run once
+  radosgw-assume exec -- aws s3 ls              # Select profile, then run once
+  radosgw-assume exec -p myprofile -- aws s3 ls # Use specific profile, then run once
+  radosgw-assume shell                          # Select profile, then start a shell
+  radosgw-assume shell -p myprofile             # Start a shell for a specific profile
   eval $(radosgw-assume)                        # Interactive with credential export
   eval $(radosgw-assume -p myprofile)           # Direct profile with export
   radosgw-assume --verbose                      # Verbose output with detailed info
@@ -175,6 +180,18 @@ Everything after `--` is executed with temporary AWS credentials and `AWS_ENDPOI
 radosgw-assume exec -- aws s3 ls
 radosgw-assume exec --env -- aws s3 ls
 ```
+
+### Start an Authenticated Shell
+
+Use `shell` when several interactive commands need the same temporary credentials:
+
+```bash
+radosgw-assume shell -p myprofile
+```
+
+The command starts an interactive instance of `$SHELL` (or `/bin/sh` when `$SHELL` is unset) and leaves the parent shell unchanged. Type `exit` or press Ctrl+D to return. Bash, Zsh, POSIX SH, Ksh, and Fish prompts are marked with the active profile; Powerlevel10k receives a native prompt segment. Existing shell configuration and themes are loaded normally and are never modified on disk. Use `--no-prompt` to retain the original prompt.
+
+The inner shell receives the same temporary AWS environment as `exec`, plus `RADOSGW_ASSUME_SHELL=1`, `RADOSGW_ASSUME_PROFILE`, and `RADOSGW_ASSUME_PROMPT_LABEL` so prompts and scripts can identify it. The source OIDC token is not passed to the shell. Omit `-p` to select a profile interactively, or use `--env` for environment configuration.
 
 ## Key Features
 

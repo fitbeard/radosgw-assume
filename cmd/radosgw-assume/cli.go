@@ -25,6 +25,7 @@ const (
 	actionHelp
 	actionVersion
 	actionExec
+	actionShell
 )
 
 type cliOptions struct {
@@ -34,6 +35,7 @@ type cliOptions struct {
 	useEnv          bool
 	sessionDuration time.Duration
 	sessionName     string
+	noPrompt        bool
 	command         []string
 }
 
@@ -143,6 +145,27 @@ func (r *cliRunner) run(program string, args []string) int {
 		}
 		return 0
 	}
+	if options.action == actionShell {
+		environment := shellEnvironment(r.environ(), result)
+		launch, err := prepareInteractiveShell(environment, !options.noPrompt)
+		if err != nil {
+			_, _ = fmt.Fprintf(r.stderr, "Error preparing interactive shell: %v\n", err)
+			return 1
+		}
+		defer launch.cleanup()
+
+		_, _ = fmt.Fprintf(r.stderr, "# Entering RadosGW shell for profile: %s\n", result.ProfileName)
+		_, _ = fmt.Fprintf(r.stderr, "# Credentials valid until: %s\n", result.Expiration)
+		if launch.promptModified {
+			_, _ = fmt.Fprintf(r.stderr, "# Prompt marker: [%s]\n", promptLabel(result.ProfileName))
+		}
+		_, _ = fmt.Fprintln(r.stderr, "# Type 'exit' or press Ctrl+D to return.")
+		if err := r.execCommand(launch.command, launch.environment); err != nil {
+			_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
+			return 1
+		}
+		return 0
+	}
 
 	if options.verbose {
 		ui.FprintCredentials(r.stdout, r.stderr, result)
@@ -159,9 +182,15 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 		return options, nil
 	}
 	startIndex := 0
-	if len(args) > 0 && args[0] == "exec" {
-		options.action = actionExec
-		startIndex = 1
+	if len(args) > 0 {
+		switch args[0] {
+		case "exec":
+			options.action = actionExec
+			startIndex = 1
+		case "shell":
+			options.action = actionShell
+			startIndex = 1
+		}
 	}
 
 	for i := startIndex; i < len(args); i++ {
@@ -182,6 +211,8 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 			return options, nil
 		case "-v", "--verbose":
 			options.verbose = true
+		case "--no-prompt":
+			options.noPrompt = true
 		case "-e", "--env":
 			options.useEnv = true
 		case "-p", "--profile":
@@ -227,6 +258,9 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 			if options.action == actionExec {
 				return cliOptions{}, fmt.Errorf("unexpected exec argument '%s': command must follow '--'\nUsage: %s exec [OPTIONS] -- COMMAND [ARG...]", arg, program)
 			}
+			if options.action == actionShell {
+				return cliOptions{}, fmt.Errorf("unexpected shell argument '%s'\nUsage: %s shell [OPTIONS]", arg, program)
+			}
 			return cliOptions{}, fmt.Errorf("unexpected argument '%s': select a profile with -p or --profile\nUse -h or --help for usage information", arg)
 		}
 	}
@@ -235,6 +269,9 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 	}
 	if options.useEnv && options.profileName != "" {
 		return cliOptions{}, fmt.Errorf("--env and --profile cannot be used together")
+	}
+	if options.noPrompt && options.action != actionShell {
+		return cliOptions{}, fmt.Errorf("--no-prompt can only be used with the shell command")
 	}
 
 	return options, nil
@@ -253,14 +290,28 @@ func credentialEnvironment(environment []string, result *config.AssumeRoleResult
 		overrides = append(overrides, "AWS_PROFILE="+result.ProfileName)
 	}
 
-	overriddenNames := make(map[string]struct{}, len(overrides))
+	// The OIDC token is only needed to obtain temporary credentials and must not
+	// be exposed to the executed command.
+	return environmentWithOverrides(environment, overrides, "RADOSGW_OIDC_TOKEN")
+}
+
+func shellEnvironment(environment []string, result *config.AssumeRoleResult) []string {
+	return environmentWithOverrides(credentialEnvironment(environment, result), []string{
+		"RADOSGW_ASSUME_SHELL=1",
+		"RADOSGW_ASSUME_PROFILE=" + result.ProfileName,
+		"RADOSGW_ASSUME_PROMPT_LABEL=" + promptLabel(result.ProfileName),
+	})
+}
+
+func environmentWithOverrides(environment, overrides []string, removedNames ...string) []string {
+	overriddenNames := make(map[string]struct{}, len(overrides)+len(removedNames))
 	for _, variable := range overrides {
 		name, _, _ := strings.Cut(variable, "=")
 		overriddenNames[name] = struct{}{}
 	}
-	// The OIDC token is only needed to obtain temporary credentials and must not
-	// be exposed to the executed command.
-	overriddenNames["RADOSGW_OIDC_TOKEN"] = struct{}{}
+	for _, name := range removedNames {
+		overriddenNames[name] = struct{}{}
+	}
 
 	childEnvironment := make([]string, 0, len(environment)+len(overrides))
 	for _, variable := range environment {
