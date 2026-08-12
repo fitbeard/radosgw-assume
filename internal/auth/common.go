@@ -59,11 +59,26 @@ func NewHTTPClient(sslVerify bool) *http.Client {
 func newHTTPClient(sslVerify bool, requestTimeout time.Duration) *http.Client {
 	client := &http.Client{Timeout: requestTimeout}
 	if !sslVerify {
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
+		client.Transport = insecureDefaultTransport()
 	}
 	return client
+}
+
+func insecureDefaultTransport() *http.Transport {
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		defaultTransport = &http.Transport{Proxy: http.ProxyFromEnvironment}
+	}
+
+	transport := defaultTransport.Clone()
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	} else {
+		transport.TLSClientConfig = transport.TLSClientConfig.Clone()
+	}
+	transport.TLSClientConfig.InsecureSkipVerify = true
+
+	return transport
 }
 
 type oidcErrorResponse struct {
