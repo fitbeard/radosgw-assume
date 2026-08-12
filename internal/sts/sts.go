@@ -73,8 +73,38 @@ func assumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessi
 		return nil, formatSTSError(err, endpointURL, roleArn)
 	}
 
-	// Format expiration time
-	expiration := result.Credentials.Expiration.Format(time.RFC3339)
+	return buildAssumeRoleResult(result, endpointURL)
+}
+
+func buildAssumeRoleResult(result *sts.AssumeRoleWithWebIdentityOutput, endpointURL string) (*config.AssumeRoleResult, error) {
+	if result == nil {
+		return nil, fmt.Errorf("STS endpoint '%s' returned an invalid response: response is missing", endpointURL)
+	}
+	if result.Credentials == nil {
+		return nil, fmt.Errorf("STS endpoint '%s' returned an invalid response: credentials are missing", endpointURL)
+	}
+
+	credentials := result.Credentials
+	var missingFields []string
+	if aws.ToString(credentials.AccessKeyId) == "" {
+		missingFields = append(missingFields, "AccessKeyId")
+	}
+	if aws.ToString(credentials.SecretAccessKey) == "" {
+		missingFields = append(missingFields, "SecretAccessKey")
+	}
+	if aws.ToString(credentials.SessionToken) == "" {
+		missingFields = append(missingFields, "SessionToken")
+	}
+	if credentials.Expiration == nil || credentials.Expiration.IsZero() {
+		missingFields = append(missingFields, "Expiration")
+	}
+	if len(missingFields) > 0 {
+		return nil, fmt.Errorf(
+			"STS endpoint '%s' returned an invalid response: missing required credential fields: %s",
+			endpointURL,
+			strings.Join(missingFields, ", "),
+		)
+	}
 
 	// Extract assumed role user ARN (contains session name)
 	var assumedRoleArn string
@@ -84,10 +114,10 @@ func assumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessi
 
 	return &config.AssumeRoleResult{
 		AssumedRoleArn:  assumedRoleArn,
-		AccessKeyID:     *result.Credentials.AccessKeyId,
-		SecretAccessKey: *result.Credentials.SecretAccessKey,
-		SessionToken:    *result.Credentials.SessionToken,
-		Expiration:      expiration,
+		AccessKeyID:     aws.ToString(credentials.AccessKeyId),
+		SecretAccessKey: aws.ToString(credentials.SecretAccessKey),
+		SessionToken:    aws.ToString(credentials.SessionToken),
+		Expiration:      credentials.Expiration.Format(time.RFC3339),
 		EndpointURL:     endpointURL,
 	}, nil
 }
