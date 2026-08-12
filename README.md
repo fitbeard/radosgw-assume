@@ -29,7 +29,7 @@ Ceph RadosGW supports OIDC for authentication, but the integration workflow is c
 - ✅ **Supports multiple OIDC flows** - Device flow for CI/CD, browser flow for interactive use
 - ✅ **Handles security properly** - PKCE, state validation, secure token storage
 - ✅ **Works everywhere** - CI/CD pipelines, developer workstations, shell scripts
-- ✅ **Shell integration** - Export credentials directly to your shell environment
+- ✅ **Shell integration** - Export credentials or run one command without `eval`
 - ✅ **Zero long-lived secrets** - All credentials are temporary and auto-expire
 
 ## What Does It Do?
@@ -60,7 +60,7 @@ Ceph RadosGW supports OIDC for authentication, but the integration workflow is c
          │ 5. Temporary AWS Credentials                    │
          │◀────────────────────────────────────────────────┤
          │                        │                        │
-         │ 6. Export to Shell     |                        │
+         │ 6. Export or Run Command                        │
          │                        │                        │
 ```
 
@@ -114,6 +114,7 @@ Download the latest release from [GitHub Releases](https://github.com/fitbeard/r
 ```bash
 radosgw-assume -h
 Usage: radosgw-assume [OPTIONS]
+       radosgw-assume exec [OPTIONS] -- COMMAND [ARG...]
        radosgw-assume (interactive profile selection)
 
 Options:
@@ -127,19 +128,22 @@ Options:
                             Only alphanumeric characters and dashes allowed
 
 Commands:
+  exec                      Run a command with temporary credentials
   version                   Show version information
 
 Examples:
-  radosgw-assume                            # Interactive selection, clean output
-  radosgw-assume -p myprofile               # Use specific profile, clean output
-  radosgw-assume --env                      # Use environment variables
-  radosgw-assume -d 2h -p myprofile         # 2-hour session duration
-  radosgw-assume -d 30m -p myprofile        # 30-minute session duration
-  radosgw-assume -d 15m -p myprofile        # 15-minute session duration (minimum)
-  radosgw-assume -s my-session -p myprofile # Custom session name
-  eval $(radosgw-assume)                    # Interactive with credential export
-  eval $(radosgw-assume -p myprofile)       # Direct profile with export
-  radosgw-assume --verbose                  # Verbose output with detailed info
+  radosgw-assume                                # Interactive selection, clean output
+  radosgw-assume -p myprofile                   # Use specific profile, clean output
+  radosgw-assume --env                          # Use environment variables
+  radosgw-assume -d 2h -p myprofile             # 2-hour session duration
+  radosgw-assume -d 30m -p myprofile            # 30-minute session duration
+  radosgw-assume -d 15m -p myprofile            # 15-minute session duration (minimum)
+  radosgw-assume -s my-session -p myprofile     # Custom session name
+  radosgw-assume exec -- aws s3 ls              # Run once
+  radosgw-assume exec -p myprofile -- aws s3 ls # Select profile, then run once
+  eval $(radosgw-assume)                        # Interactive with credential export
+  eval $(radosgw-assume -p myprofile)           # Direct profile with export
+  radosgw-assume --verbose                      # Verbose output with detailed info
 
 Environment Variables (when using -e/--env):
   RADOSGW_OIDC_PROVIDER      - OIDC provider URL (required, except for token auth)
@@ -155,6 +159,21 @@ Environment Variables (when using -e/--env):
 
 Configuration:
   Edit ~/.aws/config with RadosGW and OIDC settings
+```
+
+### Run a Command Without `eval`
+
+Use `exec` when credentials are needed for one command only:
+
+```bash
+radosgw-assume exec -p myprofile -- aws s3 ls
+```
+
+Everything after `--` is executed with temporary AWS credentials and `AWS_ENDPOINT_URL` in its environment. The source OIDC token is not passed to the command. The parent shell is unchanged, and the command receives the terminal directly with its original exit status and signal behavior. Omit `-p` to select a profile interactively, or use environment configuration:
+
+```bash
+radosgw-assume exec -- aws s3 ls
+radosgw-assume exec --env -- aws s3 ls
 ```
 
 ## Key Features

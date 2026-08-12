@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ const (
 	actionRun cliAction = iota
 	actionHelp
 	actionVersion
+	actionExec
 )
 
 type cliOptions struct {
@@ -32,6 +34,7 @@ type cliOptions struct {
 	useEnv          bool
 	sessionDuration time.Duration
 	sessionName     string
+	command         []string
 }
 
 type cliRunner struct {
@@ -44,6 +47,8 @@ type cliRunner struct {
 	getProfile     func(string, *ini.File) (*config.ProfileConfig, error)
 	selectProfile  func([]string) (string, error)
 	getCredentials func(string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error)
+	environ        func() []string
+	execCommand    func([]string, []string) error
 }
 
 func newCLIRunner(stdout, stderr io.Writer) *cliRunner {
@@ -56,6 +61,8 @@ func newCLIRunner(stdout, stderr io.Writer) *cliRunner {
 		getProfile:     config.GetProfileConfig,
 		selectProfile:  ui.SelectProfileInteractively,
 		getCredentials: credentials.GetCredentials,
+		environ:        os.Environ,
+		execCommand:    replaceProcess,
 	}
 }
 
@@ -129,6 +136,13 @@ func (r *cliRunner) run(program string, args []string) int {
 		_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
 		return 1
 	}
+	if options.action == actionExec {
+		if err := r.execCommand(options.command, credentialEnvironment(r.environ(), result)); err != nil {
+			_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
+			return 1
+		}
+		return 0
+	}
 
 	if options.verbose {
 		ui.FprintCredentials(r.stdout, r.stderr, result)
@@ -144,11 +158,25 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 		options.action = actionVersion
 		return options, nil
 	}
+	startIndex := 0
+	if len(args) > 0 && args[0] == "exec" {
+		options.action = actionExec
+		startIndex = 1
+	}
 
-	for i := 0; i < len(args); i++ {
+	for i := startIndex; i < len(args); i++ {
 		arg := args[i]
 
 		switch arg {
+		case "--":
+			if options.action != actionExec {
+				return cliOptions{}, fmt.Errorf("unexpected argument '--'\nUse -h or --help for usage information")
+			}
+			if i+1 >= len(args) {
+				return cliOptions{}, fmt.Errorf("exec requires a command after '--'\nUsage: %s exec [OPTIONS] -- COMMAND [ARG...]", program)
+			}
+			options.command = append([]string(nil), args[i+1:]...)
+			i = len(args)
 		case "-h", "--help":
 			options.action = actionHelp
 			return options, nil
@@ -196,12 +224,51 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 			if strings.HasPrefix(arg, "-") {
 				return cliOptions{}, fmt.Errorf("unknown flag '%s'\nUse -h or --help for usage information", arg)
 			}
+			if options.action == actionExec {
+				return cliOptions{}, fmt.Errorf("unexpected exec argument '%s': command must follow '--'\nUsage: %s exec [OPTIONS] -- COMMAND [ARG...]", arg, program)
+			}
 			return cliOptions{}, fmt.Errorf("unexpected argument '%s': select a profile with -p or --profile\nUse -h or --help for usage information", arg)
 		}
+	}
+	if options.action == actionExec && len(options.command) == 0 {
+		return cliOptions{}, fmt.Errorf("exec requires a command after '--'\nUsage: %s exec [OPTIONS] -- COMMAND [ARG...]", program)
 	}
 	if options.useEnv && options.profileName != "" {
 		return cliOptions{}, fmt.Errorf("--env and --profile cannot be used together")
 	}
 
 	return options, nil
+}
+
+func credentialEnvironment(environment []string, result *config.AssumeRoleResult) []string {
+	overrides := []string{
+		"AWS_ACCESS_KEY_ID=" + result.AccessKeyID,
+		"AWS_SECRET_ACCESS_KEY=" + result.SecretAccessKey,
+		"AWS_SESSION_TOKEN=" + result.SessionToken,
+		"AWS_ENDPOINT_URL=" + result.EndpointURL,
+		"AWS_CREDENTIAL_EXPIRATION=" + result.Expiration,
+		"AWS_SESSION_EXPIRATION=" + result.Expiration,
+	}
+	if result.ProfileName != "env" {
+		overrides = append(overrides, "AWS_PROFILE="+result.ProfileName)
+	}
+
+	overriddenNames := make(map[string]struct{}, len(overrides))
+	for _, variable := range overrides {
+		name, _, _ := strings.Cut(variable, "=")
+		overriddenNames[name] = struct{}{}
+	}
+	// The OIDC token is only needed to obtain temporary credentials and must not
+	// be exposed to the executed command.
+	overriddenNames["RADOSGW_OIDC_TOKEN"] = struct{}{}
+
+	childEnvironment := make([]string, 0, len(environment)+len(overrides))
+	for _, variable := range environment {
+		name, _, _ := strings.Cut(variable, "=")
+		if _, overridden := overriddenNames[name]; !overridden {
+			childEnvironment = append(childEnvironment, variable)
+		}
+	}
+
+	return append(childEnvironment, overrides...)
 }
