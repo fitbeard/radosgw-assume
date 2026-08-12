@@ -95,6 +95,36 @@ func TestParseCLIArguments(t *testing.T) {
 			args: []string{"exec", "--help"},
 			want: cliOptions{action: actionHelp, sessionDuration: time.Hour},
 		},
+		{
+			name: "shell with profile",
+			args: []string{"shell", "--profile", "profile", "--duration", "2h"},
+			want: cliOptions{
+				action:          actionShell,
+				profileName:     "profile",
+				sessionDuration: 2 * time.Hour,
+			},
+		},
+		{
+			name: "shell with interactive profile",
+			args: []string{"shell"},
+			want: cliOptions{action: actionShell, sessionDuration: time.Hour},
+		},
+		{
+			name: "shell with environment configuration",
+			args: []string{"shell", "--env", "--verbose", "--no-prompt"},
+			want: cliOptions{
+				action:          actionShell,
+				verbose:         true,
+				useEnv:          true,
+				noPrompt:        true,
+				sessionDuration: time.Hour,
+			},
+		},
+		{
+			name: "shell help",
+			args: []string{"shell", "--help"},
+			want: cliOptions{action: actionHelp, sessionDuration: time.Hour},
+		},
 	}
 
 	for _, tt := range tests {
@@ -134,6 +164,11 @@ func TestParseCLIArgumentsErrors(t *testing.T) {
 		{name: "exec command without delimiter", args: []string{"exec", "--profile", "profile", "aws", "s3", "ls"}, wantMessage: "unexpected exec argument 'aws': command must follow '--'"},
 		{name: "delimiter without exec", args: []string{"--profile", "profile", "--", "aws"}, wantMessage: "unexpected argument '--'"},
 		{name: "exec profile and environment", args: []string{"exec", "--profile", "profile", "--env", "--", "aws"}, wantMessage: "--env and --profile cannot be used together"},
+		{name: "shell positional argument", args: []string{"shell", "command"}, wantMessage: "unexpected shell argument 'command'"},
+		{name: "shell delimiter", args: []string{"shell", "--"}, wantMessage: "unexpected argument '--'"},
+		{name: "shell profile and environment", args: []string{"shell", "--profile", "profile", "--env"}, wantMessage: "--env and --profile cannot be used together"},
+		{name: "prompt option without shell", args: []string{"--no-prompt"}, wantMessage: "--no-prompt can only be used with the shell command"},
+		{name: "prompt option with exec", args: []string{"exec", "--no-prompt", "--", "aws"}, wantMessage: "--no-prompt can only be used with the shell command"},
 	}
 
 	for _, tt := range tests {
@@ -329,6 +364,78 @@ func TestCLIRunnerExecCommand(t *testing.T) {
 	}
 }
 
+func TestCLIRunnerShell(t *testing.T) {
+	runner, stdout, stderr := newTestCLIRunner(t)
+	awsConfig := ini.Empty()
+	profileConfig := &config.ProfileConfig{}
+	wantResult := testAssumeRoleResult("profile")
+	baseEnvironment := []string{
+		"PATH=/test/bin",
+		"SHELL=/test/bin/zsh",
+		"AWS_PROFILE=stale-profile",
+		"RADOSGW_ASSUME_SHELL=stale",
+		"RADOSGW_ASSUME_PROFILE=stale-profile",
+		"RADOSGW_OIDC_TOKEN=source-token",
+	}
+
+	runner.loadAWSConfig = func() (*ini.File, error) { return awsConfig, nil }
+	runner.getProfile = func(profileName string, gotConfig *ini.File) (*config.ProfileConfig, error) {
+		if profileName != "profile" || gotConfig != awsConfig {
+			t.Errorf("getProfile() = (%q, %p), want profile and test config", profileName, gotConfig)
+		}
+		return profileConfig, nil
+	}
+	runner.getCredentials = func(profileName string, gotProfile *config.ProfileConfig, gotConfig *ini.File, verbose bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
+		if profileName != "profile" || gotProfile != profileConfig || gotConfig != awsConfig {
+			t.Error("getCredentials() received unexpected configuration")
+		}
+		if verbose || sessionDuration != time.Hour {
+			t.Errorf("getCredentials() options = (verbose %v, duration %v)", verbose, sessionDuration)
+		}
+		return wantResult, nil
+	}
+	runner.environ = func() []string { return baseEnvironment }
+	runner.execCommand = func(command, environment []string) error {
+		if !reflect.DeepEqual(command, []string{"/test/bin/zsh", "-i"}) {
+			t.Errorf("execCommand() command = %v", command)
+		}
+		assertCommandEnvironment(t, environment, map[string]string{
+			"PATH":                        "/test/bin",
+			"SHELL":                       "/test/bin/zsh",
+			"AWS_ACCESS_KEY_ID":           wantResult.AccessKeyID,
+			"AWS_SECRET_ACCESS_KEY":       wantResult.SecretAccessKey,
+			"AWS_SESSION_TOKEN":           wantResult.SessionToken,
+			"AWS_PROFILE":                 wantResult.ProfileName,
+			"AWS_ENDPOINT_URL":            wantResult.EndpointURL,
+			"AWS_CREDENTIAL_EXPIRATION":   wantResult.Expiration,
+			"AWS_SESSION_EXPIRATION":      wantResult.Expiration,
+			"RADOSGW_ASSUME_SHELL":        "1",
+			"RADOSGW_ASSUME_PROFILE":      wantResult.ProfileName,
+			"RADOSGW_ASSUME_PROMPT_LABEL": "rgw:profile",
+		})
+		assertEnvironmentMissing(t, environment, "RADOSGW_OIDC_TOKEN")
+		return nil
+	}
+
+	exitCode := runner.run("radosgw-assume", []string{"shell", "--profile", "profile"})
+	if exitCode != 0 {
+		t.Fatalf("run() exit code = %d, want 0; stderr: %s", exitCode, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("run() stdout = %q, must not print credential exports", stdout.String())
+	}
+	for _, want := range []string{
+		"# Entering RadosGW shell for profile: profile",
+		"# Credentials valid until: " + wantResult.Expiration,
+		"# Prompt marker: [rgw:profile]",
+		"# Type 'exit' or press Ctrl+D to return.",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("run() stderr = %q, want it to contain %q", stderr.String(), want)
+		}
+	}
+}
+
 func TestCredentialEnvironmentKeepsRealEnvironmentProfile(t *testing.T) {
 	result := testAssumeRoleResult("env")
 	environment := credentialEnvironment([]string{
@@ -505,6 +612,20 @@ func TestCLIRunnerFailures(t *testing.T) {
 				r.execCommand = func([]string, []string) error { return errors.New("execution failure") }
 			},
 			wantMessage: "Error: execution failure",
+		},
+		{
+			name: "shell execution",
+			args: []string{"shell", "--profile", "profile"},
+			configure: func(r *cliRunner) {
+				r.loadAWSConfig = func() (*ini.File, error) { return ini.Empty(), nil }
+				r.getProfile = func(string, *ini.File) (*config.ProfileConfig, error) { return &config.ProfileConfig{}, nil }
+				r.getCredentials = func(string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error) {
+					return testAssumeRoleResult("profile"), nil
+				}
+				r.environ = func() []string { return []string{"SHELL=/bin/sh"} }
+				r.execCommand = func([]string, []string) error { return errors.New("shell failure") }
+			},
+			wantMessage: "Error: shell failure",
 		},
 	}
 
