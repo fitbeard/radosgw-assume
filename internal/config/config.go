@@ -81,8 +81,29 @@ func GetRadosGWProfiles(awsConfig *ini.File) []string {
 			profileName = strings.TrimPrefix(sectionName, "profile ")
 		}
 
-		// Check if it has RadosGW-specific keys
+		// Direct profiles provide their endpoint locally.
 		if section.HasKey("endpoint_url") && (section.HasKey("radosgw_oidc_provider") || section.HasKey("role_arn")) {
+			profiles = append(profiles, profileName)
+			continue
+		}
+		// Inherited profiles can obtain the endpoint and OIDC settings through
+		// source_profile, but must define the role they assume themselves.
+		if !section.HasKey("source_profile") || !section.HasKey("role_arn") {
+			continue
+		}
+
+		profileConfig := &ProfileConfig{}
+		if err := section.MapTo(profileConfig); err != nil {
+			continue
+		}
+		if profileConfig.SourceProfile == "" || profileConfig.RoleArn == "" {
+			continue
+		}
+		resolvedConfig, err := ResolveSourceProfile(profileConfig, awsConfig, false)
+		if err != nil {
+			continue
+		}
+		if resolvedConfig.EndpointURL != "" && (resolvedConfig.RadosGWOIDCProvider != "" || resolvedConfig.RoleArn != "") {
 			profiles = append(profiles, profileName)
 		}
 	}
@@ -121,18 +142,57 @@ func GetProfileConfig(profileName string, awsConfig *ini.File) (*ProfileConfig, 
 
 // ResolveSourceProfile resolves source_profile inheritance
 func ResolveSourceProfile(profileConfig *ProfileConfig, awsConfig *ini.File, verboseMode bool) (*ProfileConfig, error) {
+	return resolveSourceProfile(profileConfig, awsConfig, verboseMode, nil)
+}
+
+func resolveSourceProfile(profileConfig *ProfileConfig, awsConfig *ini.File, verboseMode bool, chain []string) (*ProfileConfig, error) {
 	if profileConfig.SourceProfile == "" {
 		return profileConfig, nil
 	}
 
-	if verboseMode {
-		fmt.Fprintf(os.Stderr, "# Resolving source profile: %s\n", profileConfig.SourceProfile)
+	sourceProfile := profileConfig.SourceProfile
+	for index, profileName := range chain {
+		if profileName == sourceProfile {
+			cycle := append(append([]string{}, chain[index:]...), sourceProfile)
+			return nil, fmt.Errorf("source_profile cycle detected: %s", strings.Join(cycle, " -> "))
+		}
 	}
-	sourceConfig, err := GetProfileConfig(profileConfig.SourceProfile, awsConfig)
+	chain = append(chain, sourceProfile)
+
+	if verboseMode {
+		_, _ = fmt.Fprintf(os.Stderr, "# Resolving source profile: %s\n", sourceProfile)
+	}
+	sourceConfig, err := getProfileConfigForResolution(sourceProfile, awsConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve source profile '%s': %w", profileConfig.SourceProfile, err)
+		return nil, fmt.Errorf("failed to resolve source_profile chain %s: %w", strings.Join(chain, " -> "), err)
+	}
+	resolvedSourceConfig, err := resolveSourceProfile(sourceConfig, awsConfig, verboseMode, chain)
+	if err != nil {
+		return nil, err
 	}
 
+	return mergeProfileConfigs(resolvedSourceConfig, profileConfig), nil
+}
+
+func getProfileConfigForResolution(profileName string, awsConfig *ini.File) (*ProfileConfig, error) {
+	configSection := "profile " + profileName
+	if profileName == "default" {
+		configSection = "default"
+	}
+
+	section, err := awsConfig.GetSection(configSection)
+	if err != nil {
+		return nil, fmt.Errorf("profile '%s' not found in ~/.aws/config", profileName)
+	}
+
+	profileConfig := &ProfileConfig{}
+	if err := section.MapTo(profileConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse profile '%s': %w", profileName, err)
+	}
+	return profileConfig, nil
+}
+
+func mergeProfileConfigs(sourceConfig, profileConfig *ProfileConfig) *ProfileConfig {
 	// Merge configs: source config as base, current profile overrides
 	mergedConfig := *sourceConfig
 
@@ -149,6 +209,9 @@ func ResolveSourceProfile(profileConfig *ProfileConfig, awsConfig *ini.File, ver
 	if profileConfig.RadosGWOIDCAuthType != "" {
 		mergedConfig.RadosGWOIDCAuthType = profileConfig.RadosGWOIDCAuthType
 	}
+	if profileConfig.RadosGWOIDCToken != "" {
+		mergedConfig.RadosGWOIDCToken = profileConfig.RadosGWOIDCToken
+	}
 	if profileConfig.RadosGWOIDCScope != "" {
 		mergedConfig.RadosGWOIDCScope = profileConfig.RadosGWOIDCScope
 	}
@@ -164,8 +227,9 @@ func ResolveSourceProfile(profileConfig *ProfileConfig, awsConfig *ini.File, ver
 	if profileConfig.RoleSessionName != "" {
 		mergedConfig.RoleSessionName = profileConfig.RoleSessionName
 	}
+	mergedConfig.SourceProfile = ""
 
-	return &mergedConfig, nil
+	return &mergedConfig
 }
 
 // GetProfileConfigFromEnv creates a ProfileConfig from environment variables

@@ -257,7 +257,7 @@ func TestGetCredentials_DefaultScope(t *testing.T) {
 	}
 }
 
-func TestGetCredentials_InheritsEndpointFromSourceProfile(t *testing.T) {
+func TestGetCredentials_InheritsEndpointFromNestedSourceProfile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/xml")
 		_, _ = fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>
@@ -285,9 +285,12 @@ endpoint_url = %s
 radosgw_oidc_auth_type = token
 
 [profile derived]
-source_profile = base
+source_profile = shared
 role_arn = arn:aws:iam::123456789012:role/TestRole
 role_session_name = test-session
+
+[profile shared]
+source_profile = base
 `, server.URL)))
 	if err != nil {
 		t.Fatalf("ini.Load() error = %v", err)
