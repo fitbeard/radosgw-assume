@@ -51,7 +51,6 @@ func TestNewHTTPClient(t *testing.T) {
 			}
 
 			if tt.wantTransport {
-				// Verify it's an http.Transport with TLS config
 				transport, ok := client.Transport.(*http.Transport)
 				if !ok {
 					t.Error("Expected *http.Transport when SSL verification is disabled")
@@ -59,9 +58,38 @@ func TestNewHTTPClient(t *testing.T) {
 					t.Error("Expected TLSClientConfig to be set when SSL verification is disabled")
 				} else if !transport.TLSClientConfig.InsecureSkipVerify {
 					t.Error("Expected InsecureSkipVerify to be true when SSL verification is disabled")
+				} else {
+					assertClonedDefaultTransport(t, transport)
 				}
 			}
 		})
+	}
+}
+
+func assertClonedDefaultTransport(t *testing.T, transport *http.Transport) {
+	t.Helper()
+
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		t.Skip("http.DefaultTransport is not an *http.Transport")
+	}
+	if transport == defaultTransport {
+		t.Error("insecure transport must not mutate http.DefaultTransport")
+	}
+	if transport.Proxy == nil && defaultTransport.Proxy != nil {
+		t.Error("insecure transport did not preserve proxy configuration")
+	}
+	if transport.ForceAttemptHTTP2 != defaultTransport.ForceAttemptHTTP2 {
+		t.Errorf("ForceAttemptHTTP2 = %v, want %v", transport.ForceAttemptHTTP2, defaultTransport.ForceAttemptHTTP2)
+	}
+	if transport.MaxIdleConns != defaultTransport.MaxIdleConns {
+		t.Errorf("MaxIdleConns = %d, want %d", transport.MaxIdleConns, defaultTransport.MaxIdleConns)
+	}
+	if transport.IdleConnTimeout != defaultTransport.IdleConnTimeout {
+		t.Errorf("IdleConnTimeout = %v, want %v", transport.IdleConnTimeout, defaultTransport.IdleConnTimeout)
+	}
+	if transport.TLSHandshakeTimeout != defaultTransport.TLSHandshakeTimeout {
+		t.Errorf("TLSHandshakeTimeout = %v, want %v", transport.TLSHandshakeTimeout, defaultTransport.TLSHandshakeTimeout)
 	}
 }
 

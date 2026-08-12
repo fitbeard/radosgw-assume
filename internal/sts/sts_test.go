@@ -1,10 +1,17 @@
 package sts
 
 import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -235,6 +242,40 @@ func TestSTSRequestTimeout(t *testing.T) {
 	}
 }
 
+func TestSTSHTTPClientPreservesDefaultTransport(t *testing.T) {
+	client := newSTSHTTPClient(false, STSRequestTimeout)
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("STS HTTP client transport = %T, want *http.Transport", client.Transport)
+	}
+	if transport.TLSClientConfig == nil || !transport.TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("STS HTTP client did not disable TLS verification")
+	}
+
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		t.Skip("http.DefaultTransport is not an *http.Transport")
+	}
+	if transport == defaultTransport {
+		t.Error("insecure transport must not mutate http.DefaultTransport")
+	}
+	if transport.Proxy == nil && defaultTransport.Proxy != nil {
+		t.Error("insecure transport did not preserve proxy configuration")
+	}
+	if transport.ForceAttemptHTTP2 != defaultTransport.ForceAttemptHTTP2 {
+		t.Errorf("ForceAttemptHTTP2 = %v, want %v", transport.ForceAttemptHTTP2, defaultTransport.ForceAttemptHTTP2)
+	}
+	if transport.MaxIdleConns != defaultTransport.MaxIdleConns {
+		t.Errorf("MaxIdleConns = %d, want %d", transport.MaxIdleConns, defaultTransport.MaxIdleConns)
+	}
+	if transport.IdleConnTimeout != defaultTransport.IdleConnTimeout {
+		t.Errorf("IdleConnTimeout = %v, want %v", transport.IdleConnTimeout, defaultTransport.IdleConnTimeout)
+	}
+	if transport.TLSHandshakeTimeout != defaultTransport.TLSHandshakeTimeout {
+		t.Errorf("TLSHandshakeTimeout = %v, want %v", transport.TLSHandshakeTimeout, defaultTransport.TLSHandshakeTimeout)
+	}
+}
+
 func TestValidateDuration(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -426,6 +467,26 @@ func TestDefaultSessionNameFormat(t *testing.T) {
 func TestFormatSTSError(t *testing.T) {
 	endpointURL := "https://s3.example.com"
 	roleArn := "arn:aws:iam:::role/TestRole"
+	connectionRefusedError := &url.Error{
+		Op:  "Post",
+		URL: endpointURL,
+		Err: &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED},
+	}
+	dnsError := &url.Error{
+		Op:  "Post",
+		URL: endpointURL,
+		Err: &net.DNSError{Name: "bad.host", Err: "resolver failure", IsNotFound: true},
+	}
+	certificateError := &url.Error{
+		Op:  "Post",
+		URL: endpointURL,
+		Err: &tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}},
+	}
+	timeoutError := &url.Error{
+		Op:  "Post",
+		URL: endpointURL,
+		Err: testTimeoutError{},
+	}
 
 	tests := []struct {
 		name        string
@@ -469,22 +530,27 @@ func TestFormatSTSError(t *testing.T) {
 		},
 		{
 			name:        "connection refused",
-			err:         fmt.Errorf("dial tcp: connection refused"),
+			err:         connectionRefusedError,
 			wantContain: "connection refused",
 		},
 		{
 			name:        "no such host",
-			err:         fmt.Errorf("dial tcp: lookup bad.host: no such host"),
+			err:         dnsError,
 			wantContain: "unknown host",
 		},
 		{
 			name:        "certificate error",
-			err:         fmt.Errorf("x509: certificate signed by unknown authority"),
+			err:         certificateError,
 			wantContain: "TLS certificate error",
 		},
 		{
-			name:        "timeout error",
-			err:         fmt.Errorf("context deadline exceeded"),
+			name:        "network timeout error",
+			err:         timeoutError,
+			wantContain: "connection timeout",
+		},
+		{
+			name:        "context deadline error",
+			err:         fmt.Errorf("wrapped request deadline: %w", context.DeadlineExceeded),
 			wantContain: "connection timeout",
 		},
 		{
@@ -500,6 +566,63 @@ func TestFormatSTSError(t *testing.T) {
 			if !strings.Contains(result.Error(), tt.wantContain) {
 				t.Errorf("formatSTSError() = %v, want to contain %v", result, tt.wantContain)
 			}
+			if !errors.Is(result, tt.err) {
+				t.Errorf("formatSTSError() did not preserve original error %T", tt.err)
+			}
 		})
 	}
+}
+
+func TestFormatSTSErrorDoesNotClassifyMessageText(t *testing.T) {
+	for _, message := range []string{
+		"connection refused",
+		"no such host",
+		"certificate validation failed",
+		"request timeout",
+		"deadline exceeded",
+	} {
+		t.Run(message, func(t *testing.T) {
+			cause := errors.New(message)
+			err := formatSTSError(cause, "https://s3.example.com", "arn:aws:iam:::role/TestRole")
+			if !strings.HasPrefix(err.Error(), "failed to assume role") {
+				t.Errorf("formatSTSError() classified untyped message %q: %v", message, err)
+			}
+			if !errors.Is(err, cause) {
+				t.Error("formatSTSError() did not preserve original error")
+			}
+		})
+	}
+}
+
+func TestCertificateVerificationErrorTypes(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{name: "TLS verification", err: &tls.CertificateVerificationError{Err: errors.New("verify failed")}},
+		{name: "unknown authority", err: x509.UnknownAuthorityError{}},
+		{name: "hostname", err: x509.HostnameError{Host: "s3.example.com"}},
+		{name: "invalid certificate", err: x509.CertificateInvalidError{}},
+		{name: "system roots", err: x509.SystemRootsError{Err: errors.New("roots unavailable")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if !isCertificateVerificationError(fmt.Errorf("TLS handshake: %w", test.err)) {
+				t.Errorf("isCertificateVerificationError() = false for %T", test.err)
+			}
+		})
+	}
+
+	if isCertificateVerificationError(errors.New("certificate text only")) {
+		t.Error("isCertificateVerificationError() classified untyped message text")
+	}
+}
+
+type testTimeoutError struct{}
+
+func (testTimeoutError) Error() string {
+	return "operation stalled"
+}
+
+func (testTimeoutError) Timeout() bool {
+	return true
 }
