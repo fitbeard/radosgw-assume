@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -33,6 +35,12 @@ const (
 	PKCEMethodPlain = "plain"
 	// PKCEMethodS256 sends the base64url-encoded SHA-256 verifier digest.
 	PKCEMethodS256 = "S256"
+	// maxOIDCResponseBodySize prevents an identity provider from making the
+	// client buffer an unbounded response body.
+	maxOIDCResponseBodySize = 64 << 10
+	// maxOIDCErrorDetailSize keeps provider errors useful without flooding the
+	// terminal with an entire response body.
+	maxOIDCErrorDetailSize = 1024
 )
 
 // Callback server ports
@@ -56,6 +64,63 @@ func newHTTPClient(sslVerify bool, requestTimeout time.Duration) *http.Client {
 		}
 	}
 	return client
+}
+
+type oidcErrorResponse struct {
+	Error     string `json:"error"`
+	ErrorDesc string `json:"error_description"`
+}
+
+func readOIDCResponseAndClose(response *http.Response) ([]byte, error) {
+	if response.Body == nil {
+		return nil, fmt.Errorf("OIDC response has no body")
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxOIDCResponseBodySize+1))
+	if err != nil {
+		return nil, fmt.Errorf("read OIDC response body: %w", err)
+	}
+	if len(body) > maxOIDCResponseBodySize {
+		return nil, fmt.Errorf("OIDC response body exceeds %d-byte limit", maxOIDCResponseBodySize)
+	}
+
+	return body, nil
+}
+
+func oidcHTTPStatusError(operation string, statusCode int, body []byte, providerURL string) error {
+	var errorResponse oidcErrorResponse
+	if err := json.Unmarshal(body, &errorResponse); err == nil && errorResponse.Error != "" {
+		return fmt.Errorf(
+			"%s failed with status %d: %w",
+			operation,
+			statusCode,
+			FormatOIDCError(
+				errorResponse.Error,
+				truncateOIDCErrorDetail(errorResponse.ErrorDesc),
+				providerURL,
+			),
+		)
+	}
+
+	detail := truncateOIDCErrorDetail(strings.TrimSpace(string(body)))
+	if detail == "" {
+		detail = http.StatusText(statusCode)
+	}
+	if detail == "" {
+		detail = "empty response body"
+	}
+
+	return fmt.Errorf("%s failed with status %d: %s", operation, statusCode, detail)
+}
+
+func truncateOIDCErrorDetail(detail string) string {
+	runes := []rune(detail)
+	if len(runes) <= maxOIDCErrorDetailSize {
+		return detail
+	}
+
+	return string(runes[:maxOIDCErrorDetailSize]) + "…"
 }
 
 // ProgressIndicator manages progress indication during authentication.

@@ -69,7 +69,7 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 	data.Set("code_challenge_method", resolvedPKCEMethod)
 
 	client := dependencies.newHTTPClient(sslVerify)
-	deviceResponse, err := requestDeviceAuthorization(client, deviceAuthEndpoint, data)
+	deviceResponse, err := requestDeviceAuthorization(client, deviceAuthEndpoint, data, providerURL)
 	if err != nil {
 		return "", err
 	}
@@ -102,21 +102,38 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 			progress.StopQuiet()
 			return "", fmt.Errorf("token request failed: %w", err)
 		}
-		tokenResponse, err := decodeTokenResponseAndClose(response)
+		body, err := readOIDCResponseAndClose(response)
 		if err != nil {
 			progress.StopQuiet()
+			return "", fmt.Errorf("failed to read token response: %w", err)
+		}
+
+		var tokenResponse TokenResponse
+		if err := json.Unmarshal(body, &tokenResponse); err != nil {
+			progress.StopQuiet()
+			if response.StatusCode != http.StatusOK {
+				return "", oidcHTTPStatusError("token request", response.StatusCode, body, providerURL)
+			}
 			return "", fmt.Errorf("failed to parse token response: %w", err)
 		}
 
-		if response.StatusCode == http.StatusOK && tokenResponse.AccessToken != "" {
+		switch response.StatusCode {
+		case http.StatusOK:
+			if tokenResponse.Error != "" {
+				progress.StopQuiet()
+				return "", FormatOIDCError(tokenResponse.Error, tokenResponse.ErrorDesc, providerURL)
+			}
+			if tokenResponse.AccessToken == "" {
+				progress.StopQuiet()
+				return "", fmt.Errorf("no access token received")
+			}
+
 			progress.Stop()
 			if verboseMode {
 				_, _ = fmt.Fprintln(dependencies.stderr, "# ✓ Authentication successful!")
 			}
 			return tokenResponse.AccessToken, nil
-		}
-
-		if response.StatusCode == http.StatusBadRequest {
+		case http.StatusBadRequest:
 			switch tokenResponse.Error {
 			case "authorization_pending":
 				continue
@@ -125,8 +142,11 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 				continue
 			default:
 				progress.StopQuiet()
-				return "", FormatOIDCError(tokenResponse.Error, tokenResponse.ErrorDesc, providerURL)
+				return "", oidcHTTPStatusError("token request", response.StatusCode, body, providerURL)
 			}
+		default:
+			progress.StopQuiet()
+			return "", oidcHTTPStatusError("token request", response.StatusCode, body, providerURL)
 		}
 	}
 
@@ -134,20 +154,22 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 	return "", fmt.Errorf("authentication timeout after %v", AuthTimeout)
 }
 
-func requestDeviceAuthorization(client *http.Client, endpoint string, data url.Values) (DeviceAuthResponse, error) {
+func requestDeviceAuthorization(client *http.Client, endpoint string, data url.Values, providerURL string) (DeviceAuthResponse, error) {
 	response, err := client.PostForm(endpoint, data)
 	if err != nil {
 		return DeviceAuthResponse{}, fmt.Errorf("device authorization request failed: %w", err)
 	}
-	defer func() { _ = response.Body.Close() }()
+	body, err := readOIDCResponseAndClose(response)
+	if err != nil {
+		return DeviceAuthResponse{}, fmt.Errorf("failed to read device authorization response: %w", err)
+	}
 
 	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(response.Body)
-		return DeviceAuthResponse{}, fmt.Errorf("device authorization failed with status %d: %s", response.StatusCode, string(body))
+		return DeviceAuthResponse{}, oidcHTTPStatusError("device authorization", response.StatusCode, body, providerURL)
 	}
 
 	var deviceResponse DeviceAuthResponse
-	if err := json.NewDecoder(response.Body).Decode(&deviceResponse); err != nil {
+	if err := json.Unmarshal(body, &deviceResponse); err != nil {
 		return DeviceAuthResponse{}, fmt.Errorf("failed to parse device authorization response: %w", err)
 	}
 
@@ -174,17 +196,4 @@ func printDeviceAuthenticationInstructions(stderr io.Writer, response DeviceAuth
 	_, _ = fmt.Fprintln(stderr, "# ⏰ You have 60 seconds to complete authentication")
 	_, _ = fmt.Fprintln(stderr, "#")
 	_, _ = fmt.Fprintln(stderr, "# Waiting for authentication...")
-}
-
-// decodeTokenResponseAndClose decodes a polling response and always closes its
-// body before returning so the polling loop never accumulates open responses.
-func decodeTokenResponseAndClose(resp *http.Response) (TokenResponse, error) {
-	defer func() { _ = resp.Body.Close() }()
-
-	var tokenResponse TokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tokenResponse); err != nil {
-		return TokenResponse{}, err
-	}
-
-	return tokenResponse, nil
 }

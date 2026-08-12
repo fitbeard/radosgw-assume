@@ -290,6 +290,12 @@ func TestFormatOIDCError(t *testing.T) {
 		wantContain string
 	}{
 		{
+			name:        "invalid_request",
+			errorCode:   "invalid_request",
+			errorDesc:   "missing parameter",
+			wantContain: "authentication request was malformed. missing parameter",
+		},
+		{
 			name:        "invalid_client",
 			errorCode:   "invalid_client",
 			errorDesc:   "",
@@ -302,16 +308,42 @@ func TestFormatOIDCError(t *testing.T) {
 			wantContain: "invalid or expired",
 		},
 		{
+			name:        "unauthorized_client",
+			errorCode:   "unauthorized_client",
+			wantContain: "not authorized for the requested authentication flow",
+		},
+		{
+			name:        "unsupported_grant_type",
+			errorCode:   "unsupported_grant_type",
+			wantContain: "does not support this authentication method",
+		},
+		{
+			name:        "invalid_scope",
+			errorCode:   "invalid_scope",
+			errorDesc:   "groups",
+			wantContain: "requested scope 'groups' is not valid",
+		},
+		{
 			name:        "access_denied",
 			errorCode:   "access_denied",
 			errorDesc:   "",
 			wantContain: "denied",
 		},
 		{
+			name:        "expired_token",
+			errorCode:   "expired_token",
+			wantContain: "device code has expired",
+		},
+		{
 			name:        "server_error",
 			errorCode:   "server_error",
 			errorDesc:   "",
 			wantContain: "internal error",
+		},
+		{
+			name:        "temporarily_unavailable",
+			errorCode:   "temporarily_unavailable",
+			wantContain: "currently unavailable",
 		},
 		{
 			name:        "unknown error with description",
@@ -340,6 +372,30 @@ func TestFormatOIDCError(t *testing.T) {
 	}
 }
 
+func TestOIDCHTTPStatusErrorDetails(t *testing.T) {
+	t.Run("uses status text for empty body", func(t *testing.T) {
+		err := oidcHTTPStatusError("token request", http.StatusBadGateway, nil, "https://oidc.example.com")
+		if !strings.Contains(err.Error(), "token request failed with status 502: Bad Gateway") {
+			t.Errorf("oidcHTTPStatusError() = %v", err)
+		}
+	})
+
+	t.Run("handles unknown status with empty body", func(t *testing.T) {
+		err := oidcHTTPStatusError("token request", 799, nil, "https://oidc.example.com")
+		if !strings.Contains(err.Error(), "empty response body") {
+			t.Errorf("oidcHTTPStatusError() = %v", err)
+		}
+	})
+
+	t.Run("truncates plain response detail", func(t *testing.T) {
+		detail := strings.Repeat("x", maxOIDCErrorDetailSize+1)
+		err := oidcHTTPStatusError("token request", http.StatusBadGateway, []byte(detail), "https://oidc.example.com")
+		if strings.Contains(err.Error(), detail) || !strings.HasSuffix(err.Error(), "…") {
+			t.Errorf("oidcHTTPStatusError() did not truncate detail: %v", err)
+		}
+	})
+}
+
 func TestConstants(t *testing.T) {
 	// Verify constants have sensible values
 	if AuthTimeout <= 0 {
@@ -364,6 +420,14 @@ func TestConstants(t *testing.T) {
 
 	if CallbackShutdownTimeout <= 0 {
 		t.Errorf("CallbackShutdownTimeout should be positive, got %v", CallbackShutdownTimeout)
+	}
+
+	if maxOIDCResponseBodySize <= 0 {
+		t.Errorf("maxOIDCResponseBodySize should be positive, got %d", maxOIDCResponseBodySize)
+	}
+
+	if maxOIDCErrorDetailSize <= 0 || maxOIDCErrorDetailSize > maxOIDCResponseBodySize {
+		t.Errorf("maxOIDCErrorDetailSize should be positive and bounded by the response limit, got %d", maxOIDCErrorDetailSize)
 	}
 
 	if CallbackPort <= 0 || CallbackPort > 65535 {

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -206,30 +207,68 @@ func TestGeneratePKCE(t *testing.T) {
 	}
 }
 
-func TestDecodeTokenResponseAndClose(t *testing.T) {
+func TestReadOIDCResponseAndClose(t *testing.T) {
 	tests := []struct {
-		name    string
-		body    string
-		wantErr bool
+		name        string
+		reader      io.Reader
+		missingBody bool
+		wantBody    string
+		wantContain string
 	}{
-		{name: "valid response", body: `{"access_token":"test-token"}`},
-		{name: "invalid response", body: `{`, wantErr: true},
+		{
+			name:     "valid response",
+			reader:   strings.NewReader(`{"access_token":"test-token"}`),
+			wantBody: `{"access_token":"test-token"}`,
+		},
+		{
+			name:        "oversized response",
+			reader:      strings.NewReader(strings.Repeat("x", maxOIDCResponseBodySize+1)),
+			wantContain: "OIDC response body exceeds 65536-byte limit",
+		},
+		{
+			name:        "read error",
+			reader:      failingReader{err: errors.New("read failed")},
+			wantContain: "read OIDC response body: read failed",
+		},
+		{
+			name:        "missing response body",
+			missingBody: true,
+			wantContain: "OIDC response has no body",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body := &trackingReadCloser{Reader: strings.NewReader(tt.body)}
-			response := &http.Response{Body: body}
-
-			_, err := decodeTokenResponseAndClose(response)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("decodeTokenResponseAndClose() error = %v, wantErr %v", err, tt.wantErr)
+			var body *trackingReadCloser
+			response := &http.Response{}
+			if !tt.missingBody {
+				body = &trackingReadCloser{Reader: tt.reader}
+				response.Body = body
 			}
-			if !body.closed {
+
+			got, err := readOIDCResponseAndClose(response)
+			if string(got) != tt.wantBody {
+				t.Errorf("readOIDCResponseAndClose() body = %q, want %q", got, tt.wantBody)
+			}
+			if tt.wantContain == "" && err != nil {
+				t.Errorf("readOIDCResponseAndClose() error = %v", err)
+			}
+			if tt.wantContain != "" && (err == nil || !strings.Contains(err.Error(), tt.wantContain)) {
+				t.Errorf("readOIDCResponseAndClose() error = %v, want containing %q", err, tt.wantContain)
+			}
+			if body != nil && !body.closed {
 				t.Error("response body was not closed")
 			}
 		})
 	}
+}
+
+type failingReader struct {
+	err error
+}
+
+func (reader failingReader) Read([]byte) (int, error) {
+	return 0, reader.err
 }
 
 type trackingReadCloser struct {
