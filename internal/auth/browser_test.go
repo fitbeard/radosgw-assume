@@ -410,10 +410,16 @@ func TestExchangeBrowserAuthorizationCode(t *testing.T) {
 			wantContain: "token exchange failed",
 		},
 		{
-			name:        "non-OK response",
+			name:        "non-OK OIDC response",
 			status:      http.StatusBadRequest,
-			body:        `{"error":"invalid_request"}`,
-			wantContain: "token exchange failed with status 400",
+			body:        `{"error":"invalid_request","error_description":"missing code verifier"}`,
+			wantContain: "invalid request: the authentication request was malformed. missing code verifier",
+		},
+		{
+			name:        "non-OK plain response",
+			status:      http.StatusBadGateway,
+			body:        "upstream unavailable",
+			wantContain: "token exchange failed with status 502: upstream unavailable",
 		},
 		{
 			name:        "malformed response",
@@ -432,6 +438,12 @@ func TestExchangeBrowserAuthorizationCode(t *testing.T) {
 			status:      http.StatusOK,
 			body:        `{}`,
 			wantContain: "no access token received",
+		},
+		{
+			name:        "oversized response",
+			status:      http.StatusOK,
+			body:        strings.Repeat("x", maxOIDCResponseBodySize+1),
+			wantContain: "OIDC response body exceeds 65536-byte limit",
 		},
 	}
 

@@ -156,9 +156,17 @@ func TestAuthenticateDeviceFlowErrors(t *testing.T) {
 			name: "authorization status",
 			responses: []testDeviceHTTPResponse{{
 				status: http.StatusBadRequest,
-				body:   `{"error":"invalid_request"}`,
+				body:   `{"error":"invalid_request","error_description":"missing challenge"}`,
 			}},
-			wantContain: "device authorization failed with status 400",
+			wantContain: "invalid request: the authentication request was malformed. missing challenge",
+		},
+		{
+			name: "oversized authorization response",
+			responses: []testDeviceHTTPResponse{{
+				status: http.StatusBadRequest,
+				body:   strings.Repeat("x", maxOIDCResponseBodySize+1),
+			}},
+			wantContain: "OIDC response body exceeds 65536-byte limit",
 		},
 		{
 			name: "malformed authorization response",
@@ -204,10 +212,46 @@ func TestAuthenticateDeviceFlowErrors(t *testing.T) {
 			wantQuietStop: true,
 		},
 		{
-			name: "timeout",
+			name: "unexpected token status with OIDC error",
+			responses: []testDeviceHTTPResponse{
+				{status: http.StatusOK, body: validDeviceResponse},
+				{status: http.StatusServiceUnavailable, body: `{"error":"temporarily_unavailable"}`},
+			},
+			wantContain:   "temporarily unavailable",
+			wantQuietStop: true,
+		},
+		{
+			name: "unexpected token status with plain response",
+			responses: []testDeviceHTTPResponse{
+				{status: http.StatusOK, body: validDeviceResponse},
+				{status: http.StatusBadGateway, body: "upstream unavailable"},
+			},
+			wantContain:   "token request failed with status 502: upstream unavailable",
+			wantQuietStop: true,
+		},
+		{
+			name: "missing access token",
 			responses: []testDeviceHTTPResponse{
 				{status: http.StatusOK, body: validDeviceResponse},
 				{status: http.StatusOK, body: `{}`},
+			},
+			wantContain:   "no access token received",
+			wantQuietStop: true,
+		},
+		{
+			name: "oversized token response",
+			responses: []testDeviceHTTPResponse{
+				{status: http.StatusOK, body: validDeviceResponse},
+				{status: http.StatusOK, body: strings.Repeat("x", maxOIDCResponseBodySize+1)},
+			},
+			wantContain:   "OIDC response body exceeds 65536-byte limit",
+			wantQuietStop: true,
+		},
+		{
+			name: "timeout",
+			responses: []testDeviceHTTPResponse{
+				{status: http.StatusOK, body: validDeviceResponse},
+				{status: http.StatusBadRequest, body: `{"error":"authorization_pending"}`},
 			},
 			configure: func(dependencies *deviceFlowDependencies, clock *testDeviceFlowClock) {
 				dependencies.sleep = func(duration time.Duration) {
@@ -270,6 +314,7 @@ func TestRequestDeviceAuthorizationClosesResponseBody(t *testing.T) {
 		client,
 		"https://oidc.example.com/protocol/openid-connect/auth/device",
 		url.Values{"client_id": {"test-client"}},
+		"https://oidc.example.com",
 	)
 	if err != nil {
 		t.Fatalf("requestDeviceAuthorization() error = %v", err)

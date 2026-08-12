@@ -272,15 +272,17 @@ func exchangeBrowserAuthorizationCode(client *http.Client, tokenEndpoint string,
 	if err != nil {
 		return "", fmt.Errorf("token exchange failed: %w", err)
 	}
-	defer func() { _ = response.Body.Close() }()
+	body, err := readOIDCResponseAndClose(response)
+	if err != nil {
+		return "", fmt.Errorf("failed to read token response: %w", err)
+	}
 
 	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(response.Body)
-		return "", fmt.Errorf("token exchange failed with status %d: %s", response.StatusCode, string(body))
+		return "", oidcHTTPStatusError("token exchange", response.StatusCode, body, providerURL)
 	}
 
 	var tokenResponse TokenResponse
-	if err := json.NewDecoder(response.Body).Decode(&tokenResponse); err != nil {
+	if err := json.Unmarshal(body, &tokenResponse); err != nil {
 		return "", fmt.Errorf("failed to parse token response: %w", err)
 	}
 
