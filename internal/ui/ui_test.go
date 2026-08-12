@@ -47,7 +47,10 @@ func TestFprintUsageRequiresProfileFlag(t *testing.T) {
 
 	for _, want := range []string{
 		"Usage: radosgw-assume [OPTIONS]",
+		"radosgw-assume exec [OPTIONS] -- COMMAND [ARG...]",
 		"-p, --profile PROFILE",
+		"exec                      Run a command with temporary credentials",
+		"radosgw-assume exec -p myprofile -- aws s3 ls",
 		"radosgw-assume -p myprofile",
 	} {
 		if !strings.Contains(output.String(), want) {
