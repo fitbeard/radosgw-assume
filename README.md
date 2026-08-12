@@ -113,12 +113,13 @@ Download the latest release from [GitHub Releases](https://github.com/fitbeard/r
 
 ```bash
 radosgw-assume -h
-Usage: radosgw-assume [OPTIONS] [PROFILE]
+Usage: radosgw-assume [OPTIONS]
        radosgw-assume (interactive profile selection)
 
 Options:
   -h, --help                Show this help message and exit
   -e, --env                 Use environment variables for configuration
+  -p, --profile PROFILE     Use a specific profile from ~/.aws/config
   -v, --verbose             Show verbose output with detailed information
   -d, --duration DURATION   Session duration (default: 1h, min: 15m, max: 12h)
                             Formats: '3600' (seconds), '60m' (minutes), '1h' (hours)
@@ -128,20 +129,17 @@ Options:
 Commands:
   version                   Show version information
 
-Arguments:
-  PROFILE       Profile name from ~/.aws/config
-
 Examples:
-  radosgw-assume                        # Interactive selection, clean output
-  radosgw-assume myprofile              # Use specific profile, clean output
-  radosgw-assume --env                  # Use environment variables
-  radosgw-assume -d 2h myprofile        # 2-hour session duration
-  radosgw-assume -d 30m myprofile       # 30-minute session duration
-  radosgw-assume -d 15m myprofile       # 15-minute session duration (minimum)
-  radosgw-assume -s my-session profile  # Custom session name
-  eval $(radosgw-assume)                # Interactive with credential export
-  eval $(radosgw-assume myprofile)      # Direct profile with export
-  radosgw-assume --verbose              # Verbose output with detailed info
+  radosgw-assume                            # Interactive selection, clean output
+  radosgw-assume -p myprofile               # Use specific profile, clean output
+  radosgw-assume --env                      # Use environment variables
+  radosgw-assume -d 2h -p myprofile         # 2-hour session duration
+  radosgw-assume -d 30m -p myprofile        # 30-minute session duration
+  radosgw-assume -d 15m -p myprofile        # 15-minute session duration (minimum)
+  radosgw-assume -s my-session -p myprofile # Custom session name
+  eval $(radosgw-assume)                    # Interactive with credential export
+  eval $(radosgw-assume -p myprofile)       # Direct profile with export
+  radosgw-assume --verbose                  # Verbose output with detailed info
 
 Environment Variables (when using -e/--env):
   RADOSGW_OIDC_PROVIDER      - OIDC provider URL (required, except for token auth)

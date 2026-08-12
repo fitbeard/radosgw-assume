@@ -40,7 +40,7 @@ func FprintCredentials(stdout, stderr io.Writer, result *config.AssumeRoleResult
 	_, _ = fmt.Fprintf(stderr, "# Credentials exported for profile: %s\n", result.ProfileName)
 	_, _ = fmt.Fprintf(stderr, "# Valid until: %s\n", result.Expiration)
 	if result.ProfileName != "env" {
-		_, _ = fmt.Fprintf(stderr, "# Usage: eval $(radosgw-assume %s)\n", result.ProfileName)
+		_, _ = fmt.Fprintf(stderr, "# Usage: eval $(radosgw-assume -p %s)\n", shellQuote(result.ProfileName))
 	} else {
 		_, _ = fmt.Fprintln(stderr, "# Usage: eval $(radosgw-assume --env)")
 	}

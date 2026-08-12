@@ -140,6 +140,10 @@ func (r *cliRunner) run(program string, args []string) int {
 
 func parseCLIArguments(program string, args []string) (cliOptions, error) {
 	options := cliOptions{sessionDuration: time.Hour}
+	if len(args) == 1 && args[0] == "version" {
+		options.action = actionVersion
+		return options, nil
+	}
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -148,16 +152,25 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 		case "-h", "--help":
 			options.action = actionHelp
 			return options, nil
-		case "version":
-			options.action = actionVersion
-			return options, nil
 		case "-v", "--verbose":
 			options.verbose = true
 		case "-e", "--env":
 			options.useEnv = true
+		case "-p", "--profile":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return cliOptions{}, fmt.Errorf("profile flag requires a value\nUsage: %s -p PROFILE", program)
+			}
+			if options.profileName != "" {
+				return cliOptions{}, fmt.Errorf("profile flag specified more than once\nUse -h or --help for usage information")
+			}
+			i++
+			options.profileName = args[i]
+			if options.profileName == "" {
+				return cliOptions{}, fmt.Errorf("profile name cannot be empty")
+			}
 		case "-d", "--duration":
 			if i+1 >= len(args) {
-				return cliOptions{}, fmt.Errorf("duration flag requires a value\nUsage: %s -d 1h [profile]", program)
+				return cliOptions{}, fmt.Errorf("duration flag requires a value\nUsage: %s -d 1h [-p PROFILE]", program)
 			}
 			i++
 			durationValue := args[i]
@@ -171,7 +184,7 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 			options.sessionDuration = sessionDuration
 		case "-s", "--session":
 			if i+1 >= len(args) {
-				return cliOptions{}, fmt.Errorf("session name flag requires a value\nUsage: %s -s my-session [profile]", program)
+				return cliOptions{}, fmt.Errorf("session name flag requires a value\nUsage: %s -s my-session [-p PROFILE]", program)
 			}
 			i++
 			sessionName := args[i]
@@ -183,11 +196,11 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 			if strings.HasPrefix(arg, "-") {
 				return cliOptions{}, fmt.Errorf("unknown flag '%s'\nUse -h or --help for usage information", arg)
 			}
-			if options.profileName != "" {
-				return cliOptions{}, fmt.Errorf("multiple profile names specified\nUse -h or --help for usage information")
-			}
-			options.profileName = arg
+			return cliOptions{}, fmt.Errorf("unexpected argument '%s': select a profile with -p or --profile\nUse -h or --help for usage information", arg)
 		}
+	}
+	if options.useEnv && options.profileName != "" {
+		return cliOptions{}, fmt.Errorf("--env and --profile cannot be used together")
 	}
 
 	return options, nil

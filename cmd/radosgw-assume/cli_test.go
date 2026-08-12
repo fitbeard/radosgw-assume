@@ -25,24 +25,28 @@ func TestParseCLIArguments(t *testing.T) {
 		},
 		{
 			name: "all run options",
-			args: []string{"profile", "--verbose", "--env", "--duration", "2h", "--session", "test-session"},
+			args: []string{"--profile", "profile", "--verbose", "--duration", "2h", "--session", "test-session"},
 			want: cliOptions{
 				profileName:     "profile",
 				verbose:         true,
-				useEnv:          true,
 				sessionDuration: 2 * time.Hour,
 				sessionName:     "test-session",
 			},
 		},
 		{
 			name: "short options",
-			args: []string{"-v", "-e", "-d", "3600", "-s", "test-session"},
+			args: []string{"-p", "profile", "-v", "-d", "3600", "-s", "test-session"},
 			want: cliOptions{
+				profileName:     "profile",
 				verbose:         true,
-				useEnv:          true,
 				sessionDuration: time.Hour,
 				sessionName:     "test-session",
 			},
+		},
+		{
+			name: "environment options",
+			args: []string{"-v", "-e"},
+			want: cliOptions{verbose: true, useEnv: true, sessionDuration: time.Hour},
 		},
 		{
 			name: "help",
@@ -53,6 +57,11 @@ func TestParseCLIArguments(t *testing.T) {
 			name: "version",
 			args: []string{"version"},
 			want: cliOptions{action: actionVersion, sessionDuration: time.Hour},
+		},
+		{
+			name: "profile named version",
+			args: []string{"--profile", "version"},
+			want: cliOptions{profileName: "version", sessionDuration: time.Hour},
 		},
 	}
 
@@ -75,13 +84,19 @@ func TestParseCLIArgumentsErrors(t *testing.T) {
 		args        []string
 		wantMessage string
 	}{
-		{name: "duration value missing", args: []string{"--duration"}, wantMessage: "duration flag requires a value\nUsage: custom-name -d 1h [profile]"},
+		{name: "duration value missing", args: []string{"--duration"}, wantMessage: "duration flag requires a value\nUsage: custom-name -d 1h [-p PROFILE]"},
 		{name: "duration malformed", args: []string{"--duration", "tomorrow"}, wantMessage: "invalid duration 'tomorrow'"},
 		{name: "duration too short", args: []string{"--duration", "1m"}, wantMessage: "duration cannot be less than 15 minutes"},
-		{name: "session value missing", args: []string{"--session"}, wantMessage: "session name flag requires a value\nUsage: custom-name -s my-session [profile]"},
+		{name: "session value missing", args: []string{"--session"}, wantMessage: "session name flag requires a value\nUsage: custom-name -s my-session [-p PROFILE]"},
 		{name: "session invalid", args: []string{"--session", "not_valid"}, wantMessage: "invalid session name 'not_valid'"},
+		{name: "profile value missing", args: []string{"--profile"}, wantMessage: "profile flag requires a value"},
+		{name: "profile value is another flag", args: []string{"--profile", "--verbose"}, wantMessage: "profile flag requires a value"},
+		{name: "profile empty", args: []string{"--profile", ""}, wantMessage: "profile name cannot be empty"},
+		{name: "profile repeated", args: []string{"--profile", "first", "-p", "second"}, wantMessage: "profile flag specified more than once"},
+		{name: "profile and environment", args: []string{"--profile", "profile", "--env"}, wantMessage: "--env and --profile cannot be used together"},
 		{name: "unknown flag", args: []string{"--unknown"}, wantMessage: "unknown flag '--unknown'"},
-		{name: "multiple profiles", args: []string{"first", "second"}, wantMessage: "multiple profile names specified"},
+		{name: "positional profile", args: []string{"profile"}, wantMessage: "unexpected argument 'profile': select a profile with -p or --profile"},
+		{name: "version with options", args: []string{"version", "--verbose"}, wantMessage: "unexpected argument 'version'"},
 	}
 
 	for _, tt := range tests {
@@ -134,8 +149,8 @@ func TestCLIRunnerNamedProfile(t *testing.T) {
 		return awsConfig, nil
 	}
 	runner.getProfile = func(profileName string, gotConfig *ini.File) (*config.ProfileConfig, error) {
-		if profileName != "test-profile" {
-			t.Errorf("getProfile() name = %q, want test-profile", profileName)
+		if profileName != "version" {
+			t.Errorf("getProfile() name = %q, want version", profileName)
 		}
 		if gotConfig != awsConfig {
 			t.Error("getProfile() received a different AWS config")
@@ -143,8 +158,8 @@ func TestCLIRunnerNamedProfile(t *testing.T) {
 		return profileConfig, nil
 	}
 	runner.getCredentials = func(profileName string, gotProfile *config.ProfileConfig, gotConfig *ini.File, verbose bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
-		if profileName != "test-profile" {
-			t.Errorf("getCredentials() profile = %q, want test-profile", profileName)
+		if profileName != "version" {
+			t.Errorf("getCredentials() profile = %q, want version", profileName)
 		}
 		if gotProfile != profileConfig || gotConfig != awsConfig {
 			t.Error("getCredentials() received unexpected configuration")
@@ -158,17 +173,17 @@ func TestCLIRunnerNamedProfile(t *testing.T) {
 		if gotProfile.RoleSessionName != "cli-session" {
 			t.Errorf("session name = %q, want CLI override", gotProfile.RoleSessionName)
 		}
-		return testAssumeRoleResult("test-profile"), nil
+		return testAssumeRoleResult("version"), nil
 	}
 
-	exitCode := runner.run("radosgw-assume", []string{"--verbose", "--duration", "2h", "--session", "cli-session", "test-profile"})
+	exitCode := runner.run("radosgw-assume", []string{"--verbose", "--duration", "2h", "--session", "cli-session", "--profile", "version"})
 	if exitCode != 0 {
 		t.Fatalf("run() exit code = %d, want 0; stderr: %s", exitCode, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "export AWS_PROFILE='test-profile'") {
+	if !strings.Contains(stdout.String(), "export AWS_PROFILE='version'") {
 		t.Errorf("run() stdout = %q, want profile export", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "# Credentials exported for profile: test-profile") {
+	if !strings.Contains(stderr.String(), "# Credentials exported for profile: version") {
 		t.Errorf("run() stderr = %q, want verbose credential hint", stderr.String())
 	}
 }
@@ -304,7 +319,7 @@ func TestCLIRunnerFailures(t *testing.T) {
 		},
 		{
 			name: "named profile",
-			args: []string{"missing"},
+			args: []string{"--profile", "missing"},
 			configure: func(r *cliRunner) {
 				r.loadAWSConfig = func() (*ini.File, error) { return ini.Empty(), nil }
 				r.getProfile = func(string, *ini.File) (*config.ProfileConfig, error) { return nil, errors.New("profile failure") }
@@ -313,7 +328,7 @@ func TestCLIRunnerFailures(t *testing.T) {
 		},
 		{
 			name: "credential acquisition",
-			args: []string{"profile"},
+			args: []string{"--profile", "profile"},
 			configure: func(r *cliRunner) {
 				r.loadAWSConfig = func() (*ini.File, error) { return ini.Empty(), nil }
 				r.getProfile = func(string, *ini.File) (*config.ProfileConfig, error) { return &config.ProfileConfig{}, nil }

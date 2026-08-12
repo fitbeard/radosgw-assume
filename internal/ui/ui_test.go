@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"errors"
 	"slices"
 	"strings"
@@ -38,6 +39,26 @@ func TestPrintUsage(t *testing.T) {
 	}()
 
 	PrintUsage()
+}
+
+func TestFprintUsageRequiresProfileFlag(t *testing.T) {
+	var output bytes.Buffer
+	FprintUsage(&output)
+
+	for _, want := range []string{
+		"Usage: radosgw-assume [OPTIONS]",
+		"-p, --profile PROFILE",
+		"radosgw-assume -p myprofile",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("FprintUsage() output missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{"[PROFILE]", "radosgw-assume myprofile"} {
+		if strings.Contains(output.String(), unwanted) {
+			t.Errorf("FprintUsage() output contains obsolete positional usage %q", unwanted)
+		}
+	}
 }
 
 func TestSelectProfileInteractively(t *testing.T) {
@@ -112,6 +133,24 @@ func TestPrintCredentials(t *testing.T) {
 	}
 
 	PrintCredentials(result)
+}
+
+func TestFprintCredentialsUsesProfileFlag(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	result := &config.AssumeRoleResult{
+		AccessKeyID:     "access-key",
+		SecretAccessKey: "secret-key",
+		SessionToken:    "session-token",
+		Expiration:      "2030-01-01T00:00:00Z",
+		ProfileName:     "profile with spaces",
+		EndpointURL:     "https://storage.example.com",
+	}
+
+	FprintCredentials(&stdout, &stderr, result)
+	if !strings.Contains(stderr.String(), "# Usage: eval $(radosgw-assume -p 'profile with spaces')") {
+		t.Errorf("FprintCredentials() stderr = %q, want profile-flag usage hint", stderr.String())
+	}
 }
 
 func TestPrintCredentialsOnly(t *testing.T) {
