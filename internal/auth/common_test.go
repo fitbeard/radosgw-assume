@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"errors"
 	"net/http"
 	"net/url"
@@ -290,6 +291,40 @@ func TestGenerateRandomString(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestGenerateRandomStringRejectsBiasedBytes(t *testing.T) {
+	randomBytes := bytes.NewReader([]byte{0, 61, 248, 255, 62, 247})
+
+	result, err := generateRandomString(4, randomBytes)
+	if err != nil {
+		t.Fatalf("generateRandomString() error = %v", err)
+	}
+	if result != "a9a9" {
+		t.Errorf("generateRandomString() = %q, want %q", result, "a9a9")
+	}
+}
+
+func TestGenerateRandomStringLengths(t *testing.T) {
+	result, err := generateRandomString(0, strings.NewReader(""))
+	if err != nil {
+		t.Fatalf("generateRandomString(0) error = %v", err)
+	}
+	if result != "" {
+		t.Errorf("generateRandomString(0) = %q, want empty", result)
+	}
+
+	_, err = generateRandomString(-1, strings.NewReader(""))
+	if err == nil || !strings.Contains(err.Error(), "length cannot be negative") {
+		t.Errorf("generateRandomString(-1) error = %v, want negative length error", err)
+	}
+}
+
+func TestGenerateRandomStringReadError(t *testing.T) {
+	_, err := generateRandomString(2, strings.NewReader("a"))
+	if err == nil || !strings.Contains(err.Error(), "failed to generate random bytes") {
+		t.Errorf("generateRandomString() error = %v, want wrapped read error", err)
 	}
 }
 
