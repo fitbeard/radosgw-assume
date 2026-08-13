@@ -51,7 +51,7 @@ func FprintUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  radosgw-assume --verbose                      # Verbose output with detailed info")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Environment Variables (when using -e/--env):")
-	_, _ = fmt.Fprintln(w, "  RADOSGW_OIDC_PROVIDER      - OIDC provider URL (required, except for token auth)")
+	_, _ = fmt.Fprintln(w, "  RADOSGW_OIDC_PROVIDER      - OIDC issuer URL (required, except for token auth)")
 	_, _ = fmt.Fprintln(w, "  RADOSGW_OIDC_CLIENT_ID     - OIDC client ID (required, except for token auth)")
 	_, _ = fmt.Fprintln(w, "  AWS_ENDPOINT_URL           - RadosGW endpoint URL (required)")
 	_, _ = fmt.Fprintln(w, "  RADOSGW_ROLE_ARN           - Role ARN to assume (required)")

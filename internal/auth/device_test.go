@@ -148,6 +148,24 @@ func TestAuthenticateDeviceFlowErrors(t *testing.T) {
 			wantContain: "PKCE failed",
 		},
 		{
+			name: "OIDC discovery",
+			configure: func(dependencies *deviceFlowDependencies, _ *testDeviceFlowClock) {
+				dependencies.discoverEndpoints = func(*http.Client, string) (oidcEndpoints, error) {
+					return oidcEndpoints{}, errors.New("discovery failed")
+				}
+			},
+			wantContain: "discovery failed",
+		},
+		{
+			name: "missing device endpoint",
+			configure: func(dependencies *deviceFlowDependencies, _ *testDeviceFlowClock) {
+				dependencies.discoverEndpoints = func(*http.Client, string) (oidcEndpoints, error) {
+					return oidcEndpoints{token: "https://oidc.example.com/token"}, nil
+				}
+			},
+			wantContain: "device_authorization_endpoint",
+		},
+		{
 			name:        "authorization transport",
 			responses:   []testDeviceHTTPResponse{{err: errors.New("connection failed")}},
 			wantContain: "device authorization request failed",
@@ -346,9 +364,15 @@ func newTestDeviceFlowDependencies(stderr io.Writer, client *http.Client) (devic
 			return testDeviceCodeVerifier, challenge, method, nil
 		},
 		newHTTPClient: func(bool) *http.Client { return client },
-		now:           clock.now,
-		sleep:         clock.sleep,
-		newProgress:   func() deviceFlowProgress { return progress },
+		discoverEndpoints: func(*http.Client, string) (oidcEndpoints, error) {
+			return oidcEndpoints{
+				deviceAuthorization: "https://oidc.example.com/device",
+				token:               "https://oidc.example.com/token",
+			}, nil
+		},
+		now:         clock.now,
+		sleep:       clock.sleep,
+		newProgress: func() deviceFlowProgress { return progress },
 	}, clock, progress
 }
 

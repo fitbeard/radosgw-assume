@@ -176,6 +176,15 @@ func TestGetCredentials_DefaultAuthType(t *testing.T) {
 	var requestedPKCEMethod string
 	var requestedCodeChallenge string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/openid-configuration" {
+			issuer := "http://" + r.Host
+			_, _ = fmt.Fprintf(w, `{
+				"issuer":%q,
+				"device_authorization_endpoint":%q,
+				"token_endpoint":%q
+			}`, issuer, issuer+"/oauth2/custom/device", issuer+"/oauth2/custom/token")
+			return
+		}
 		requestedPath = r.URL.Path
 		if err := r.ParseForm(); err != nil {
 			t.Errorf("ParseForm() error = %v", err)
@@ -199,7 +208,7 @@ func TestGetCredentials_DefaultAuthType(t *testing.T) {
 	if err == nil {
 		t.Fatal("GetCredentials() expected an error from the test server")
 	}
-	if requestedPath != "/protocol/openid-connect/auth/device" {
+	if requestedPath != "/oauth2/custom/device" {
 		t.Errorf("requested path = %q, want device authorization endpoint", requestedPath)
 	}
 	if requestedPKCEMethod != "S256" {
@@ -231,6 +240,15 @@ func TestGetCredentials_InvalidPKCEMethod(t *testing.T) {
 func TestGetCredentials_DefaultScope(t *testing.T) {
 	var requestedScope string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/openid-configuration" {
+			issuer := "http://" + r.Host
+			_, _ = fmt.Fprintf(w, `{
+				"issuer":%q,
+				"device_authorization_endpoint":%q,
+				"token_endpoint":%q
+			}`, issuer, issuer+"/oauth2/custom/device", issuer+"/oauth2/custom/token")
+			return
+		}
 		if err := r.ParseForm(); err != nil {
 			t.Errorf("ParseForm() error = %v", err)
 		}

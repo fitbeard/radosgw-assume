@@ -81,7 +81,14 @@ func TestAuthenticateDeviceFlow(t *testing.T) {
 			var codeChallenge atomic.Value
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
-				case "/protocol/openid-connect/auth/device":
+				case "/.well-known/openid-configuration":
+					_ = json.NewEncoder(w).Encode(oidcProviderMetadata{
+						Issuer:                      serverURL(r),
+						AuthorizationEndpoint:       serverURL(r) + "/oauth2/default/v1/authorize",
+						DeviceAuthorizationEndpoint: serverURL(r) + "/oauth2/default/v1/device/authorize",
+						TokenEndpoint:               serverURL(r) + "/oauth2/default/v1/token",
+					})
+				case "/oauth2/default/v1/device/authorize":
 					if err := r.ParseForm(); err != nil {
 						t.Errorf("ParseForm() error = %v", err)
 					}
@@ -106,7 +113,7 @@ func TestAuthenticateDeviceFlow(t *testing.T) {
 						ExpiresIn:       600,
 						Interval:        1,
 					})
-				case "/protocol/openid-connect/token":
+				case "/oauth2/default/v1/token":
 					requestNumber := tokenRequests.Add(1)
 					if err := r.ParseForm(); err != nil {
 						t.Errorf("ParseForm() error = %v", err)
