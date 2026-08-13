@@ -1,10 +1,8 @@
 package config
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +19,7 @@ endpoint_url = https://test.example.com
 radosgw_oidc_provider = https://oidc.example.com
 `)
 
-		config, err := loadAWSConfig(testConfigLoadDependencies(homeDirectory, io.Discard))
+		config, err := loadAWSConfig(testConfigLoadDependencies(homeDirectory))
 		if err != nil {
 			t.Fatalf("loadAWSConfig() error = %v", err)
 		}
@@ -35,7 +33,7 @@ radosgw_oidc_provider = https://oidc.example.com
 	})
 
 	t.Run("missing config returns empty config", func(t *testing.T) {
-		config, err := loadAWSConfig(testConfigLoadDependencies(t.TempDir(), io.Discard))
+		config, err := loadAWSConfig(testConfigLoadDependencies(t.TempDir()))
 		if err != nil {
 			t.Fatalf("loadAWSConfig() error = %v", err)
 		}
@@ -58,7 +56,7 @@ radosgw_oidc_provider = https://oidc.example.com
 			homeDirectory := t.TempDir()
 			writeTestAWSConfig(t, homeDirectory, test.content)
 
-			_, err := loadAWSConfig(testConfigLoadDependencies(homeDirectory, io.Discard))
+			_, err := loadAWSConfig(testConfigLoadDependencies(homeDirectory))
 			if err == nil || !strings.Contains(err.Error(), "failed to load AWS config") {
 				t.Errorf("loadAWSConfig() error = %v, want malformed config error", err)
 			}
@@ -66,7 +64,7 @@ radosgw_oidc_provider = https://oidc.example.com
 	}
 
 	t.Run("home lookup failure returns error", func(t *testing.T) {
-		dependencies := testConfigLoadDependencies("", io.Discard)
+		dependencies := testConfigLoadDependencies("")
 		dependencies.userHomeDir = func() (string, error) {
 			return "", errors.New("home lookup failed")
 		}
@@ -79,7 +77,7 @@ radosgw_oidc_provider = https://oidc.example.com
 
 	t.Run("filesystem failure is not treated as missing", func(t *testing.T) {
 		homeDirectory := t.TempDir()
-		dependencies := testConfigLoadDependencies(homeDirectory, io.Discard)
+		dependencies := testConfigLoadDependencies(homeDirectory)
 		var loadedPath string
 		dependencies.loadINIFile = func(path string) (*ini.File, error) {
 			loadedPath = path
@@ -109,58 +107,8 @@ radosgw_oidc_provider = https://oidc.example.com
 	})
 }
 
-func TestLoadAWSConfigOrEmpty(t *testing.T) {
-	tests := []struct {
-		name           string
-		verboseMode    bool
-		wantDiagnostic bool
-	}{
-		{name: "verbose failure", verboseMode: true, wantDiagnostic: true},
-		{name: "quiet failure", verboseMode: false},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			var stderr bytes.Buffer
-			dependencies := testConfigLoadDependencies(t.TempDir(), &stderr)
-			dependencies.loadINIFile = func(string) (*ini.File, error) {
-				return nil, errors.New("load failed")
-			}
-
-			config := loadAWSConfigOrEmpty(test.verboseMode, dependencies)
-			if config == nil {
-				t.Fatal("loadAWSConfigOrEmpty() returned nil config")
-			}
-			containsDiagnostic := strings.Contains(stderr.String(), "Failed to load config file")
-			if containsDiagnostic != test.wantDiagnostic {
-				t.Errorf("stderr = %q, diagnostic present = %v, want %v", stderr.String(), containsDiagnostic, test.wantDiagnostic)
-			}
-		})
-	}
-
-	t.Run("successful load returns config", func(t *testing.T) {
-		homeDirectory := t.TempDir()
-		writeTestAWSConfig(t, homeDirectory, `[profile test-profile]
-endpoint_url = https://test.example.com
-role_arn = arn:aws:iam::123456789012:role/TestRole
-`)
-		config := loadAWSConfigOrEmpty(false, testConfigLoadDependencies(homeDirectory, io.Discard))
-		if profiles := GetRadosGWProfiles(config); len(profiles) != 1 || profiles[0] != "test-profile" {
-			t.Errorf("profiles = %v, want [test-profile]", profiles)
-		}
-	})
-
-	t.Run("public fallback returns config", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
-		if config := LoadAWSConfigOrEmpty(false); config == nil {
-			t.Fatal("LoadAWSConfigOrEmpty() returned nil config")
-		}
-	})
-}
-
-func testConfigLoadDependencies(homeDirectory string, stderr io.Writer) configLoadDependencies {
+func testConfigLoadDependencies(homeDirectory string) configLoadDependencies {
 	dependencies := newConfigLoadDependencies()
-	dependencies.stderr = stderr
 	dependencies.userHomeDir = func() (string, error) { return homeDirectory, nil }
 	return dependencies
 }

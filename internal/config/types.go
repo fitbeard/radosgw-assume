@@ -6,7 +6,6 @@ type ProfileConfig struct {
 	RadosGWOIDCProvider   string `ini:"radosgw_oidc_provider"`
 	RadosGWOIDCClientID   string `ini:"radosgw_oidc_client_id"`
 	RadosGWOIDCAuthType   string `ini:"radosgw_oidc_auth_type"`
-	RadosGWOIDCToken      string `ini:"radosgw_oidc_token"`
 	RadosGWOIDCScope      string `ini:"radosgw_oidc_scope"`
 	RadosGWOIDCPKCEMethod string `ini:"radosgw_oidc_pkce_method"`
 	RadosGWSSLVerify      string `ini:"radosgw_ssl_verify"`

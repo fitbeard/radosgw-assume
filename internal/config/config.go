@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,14 +11,12 @@ import (
 )
 
 type configLoadDependencies struct {
-	stderr      io.Writer
 	userHomeDir func() (string, error)
 	loadINIFile func(string) (*ini.File, error)
 }
 
 func newConfigLoadDependencies() configLoadDependencies {
 	return configLoadDependencies{
-		stderr:      os.Stderr,
 		userHomeDir: os.UserHomeDir,
 		loadINIFile: func(path string) (*ini.File, error) { return ini.Load(path) },
 	}
@@ -46,23 +43,6 @@ func loadAWSConfig(dependencies configLoadDependencies) (*ini.File, error) {
 	}
 
 	return nil, fmt.Errorf("failed to load AWS config: %w", err)
-}
-
-// LoadAWSConfigOrEmpty loads the AWS config, returning an empty config on error.
-// If verboseMode is true and loading fails, an error message is printed to stderr.
-func LoadAWSConfigOrEmpty(verboseMode bool) *ini.File {
-	return loadAWSConfigOrEmpty(verboseMode, newConfigLoadDependencies())
-}
-
-func loadAWSConfigOrEmpty(verboseMode bool, dependencies configLoadDependencies) *ini.File {
-	awsConfig, err := loadAWSConfig(dependencies)
-	if err != nil {
-		if verboseMode {
-			_, _ = fmt.Fprintf(dependencies.stderr, "# Failed to load config file: %v\n", err)
-		}
-		return ini.Empty()
-	}
-	return awsConfig
 }
 
 // GetRadosGWProfiles returns a list of profiles that have RadosGW-specific configuration
@@ -208,9 +188,6 @@ func mergeProfileConfigs(sourceConfig, profileConfig *ProfileConfig) *ProfileCon
 	}
 	if profileConfig.RadosGWOIDCAuthType != "" {
 		mergedConfig.RadosGWOIDCAuthType = profileConfig.RadosGWOIDCAuthType
-	}
-	if profileConfig.RadosGWOIDCToken != "" {
-		mergedConfig.RadosGWOIDCToken = profileConfig.RadosGWOIDCToken
 	}
 	if profileConfig.RadosGWOIDCScope != "" {
 		mergedConfig.RadosGWOIDCScope = profileConfig.RadosGWOIDCScope
