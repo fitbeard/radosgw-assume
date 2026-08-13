@@ -3,7 +3,6 @@ package auth
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fitbeard/radosgw-assume/internal/httpclient"
 )
 
 // Authentication timeouts and intervals
@@ -53,32 +54,7 @@ const (
 
 // NewHTTPClient creates a bounded HTTP client with optional SSL verification.
 func NewHTTPClient(sslVerify bool) *http.Client {
-	return newHTTPClient(sslVerify, OIDCRequestTimeout)
-}
-
-func newHTTPClient(sslVerify bool, requestTimeout time.Duration) *http.Client {
-	client := &http.Client{Timeout: requestTimeout}
-	if !sslVerify {
-		client.Transport = insecureDefaultTransport()
-	}
-	return client
-}
-
-func insecureDefaultTransport() *http.Transport {
-	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		defaultTransport = &http.Transport{Proxy: http.ProxyFromEnvironment}
-	}
-
-	transport := defaultTransport.Clone()
-	if transport.TLSClientConfig == nil {
-		transport.TLSClientConfig = &tls.Config{}
-	} else {
-		transport.TLSClientConfig = transport.TLSClientConfig.Clone()
-	}
-	transport.TLSClientConfig.InsecureSkipVerify = true
-
-	return transport
+	return httpclient.New(sslVerify, OIDCRequestTimeout)
 }
 
 type oidcErrorResponse struct {

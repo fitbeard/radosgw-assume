@@ -237,43 +237,6 @@ func TestSTSRequestTimeout(t *testing.T) {
 	if STSRequestTimeout <= 0 {
 		t.Errorf("STSRequestTimeout should be positive, got %v", STSRequestTimeout)
 	}
-	if client := newSTSHTTPClient(true, STSRequestTimeout); client.Timeout != STSRequestTimeout {
-		t.Errorf("STS HTTP client timeout = %v, want %v", client.Timeout, STSRequestTimeout)
-	}
-}
-
-func TestSTSHTTPClientPreservesDefaultTransport(t *testing.T) {
-	client := newSTSHTTPClient(false, STSRequestTimeout)
-	transport, ok := client.Transport.(*http.Transport)
-	if !ok {
-		t.Fatalf("STS HTTP client transport = %T, want *http.Transport", client.Transport)
-	}
-	if transport.TLSClientConfig == nil || !transport.TLSClientConfig.InsecureSkipVerify {
-		t.Fatal("STS HTTP client did not disable TLS verification")
-	}
-
-	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		t.Skip("http.DefaultTransport is not an *http.Transport")
-	}
-	if transport == defaultTransport {
-		t.Error("insecure transport must not mutate http.DefaultTransport")
-	}
-	if transport.Proxy == nil && defaultTransport.Proxy != nil {
-		t.Error("insecure transport did not preserve proxy configuration")
-	}
-	if transport.ForceAttemptHTTP2 != defaultTransport.ForceAttemptHTTP2 {
-		t.Errorf("ForceAttemptHTTP2 = %v, want %v", transport.ForceAttemptHTTP2, defaultTransport.ForceAttemptHTTP2)
-	}
-	if transport.MaxIdleConns != defaultTransport.MaxIdleConns {
-		t.Errorf("MaxIdleConns = %d, want %d", transport.MaxIdleConns, defaultTransport.MaxIdleConns)
-	}
-	if transport.IdleConnTimeout != defaultTransport.IdleConnTimeout {
-		t.Errorf("IdleConnTimeout = %v, want %v", transport.IdleConnTimeout, defaultTransport.IdleConnTimeout)
-	}
-	if transport.TLSHandshakeTimeout != defaultTransport.TLSHandshakeTimeout {
-		t.Errorf("TLSHandshakeTimeout = %v, want %v", transport.TLSHandshakeTimeout, defaultTransport.TLSHandshakeTimeout)
-	}
 }
 
 func TestValidateDuration(t *testing.T) {
