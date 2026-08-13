@@ -30,6 +30,47 @@ func TestNewHTTPClient(t *testing.T) {
 	}
 }
 
+func TestEndpointsForProvider(t *testing.T) {
+	tests := []struct {
+		name        string
+		providerURL string
+		baseURL     string
+	}{
+		{
+			name:        "provider URL",
+			providerURL: "https://oidc.example.com/realms/test",
+			baseURL:     "https://oidc.example.com/realms/test",
+		},
+		{
+			name:        "trailing slash",
+			providerURL: "https://oidc.example.com/realms/test/",
+			baseURL:     "https://oidc.example.com/realms/test",
+		},
+		{
+			name:        "multiple trailing slashes",
+			providerURL: "https://oidc.example.com/realms/test///",
+			baseURL:     "https://oidc.example.com/realms/test",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			endpoints := endpointsForProvider(test.providerURL)
+			protocolURL := test.baseURL + "/protocol/openid-connect"
+
+			if endpoints.authorization != protocolURL+"/auth" {
+				t.Errorf("authorization endpoint = %q, want %q", endpoints.authorization, protocolURL+"/auth")
+			}
+			if endpoints.deviceAuthorization != protocolURL+"/auth/device" {
+				t.Errorf("device authorization endpoint = %q, want %q", endpoints.deviceAuthorization, protocolURL+"/auth/device")
+			}
+			if endpoints.token != protocolURL+"/token" {
+				t.Errorf("token endpoint = %q, want %q", endpoints.token, protocolURL+"/token")
+			}
+		})
+	}
+}
+
 func TestProgressIndicator(t *testing.T) {
 	tests := []struct {
 		name       string

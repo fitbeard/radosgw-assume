@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -102,8 +101,7 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 }
 
 func authenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, dependencies browserFlowDependencies) (string, error) {
-	tokenEndpoint := fmt.Sprintf("%s/protocol/openid-connect/token", providerURL)
-	authEndpoint := fmt.Sprintf("%s/protocol/openid-connect/auth", providerURL)
+	endpoints := endpointsForProvider(providerURL)
 
 	state, err := dependencies.generateRandomString(32)
 	if err != nil {
@@ -127,7 +125,7 @@ func authenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 
 	redirectURI := fmt.Sprintf("http://localhost:%d/callback", callbackServer.port)
 	authURL := buildBrowserAuthorizationURL(
-		authEndpoint,
+		endpoints.authorization,
 		clientID,
 		redirectURI,
 		scope,
@@ -200,7 +198,7 @@ func authenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 
 	accessToken, err := exchangeBrowserAuthorizationCode(
 		dependencies.newHTTPClient(sslVerify),
-		tokenEndpoint,
+		endpoints.token,
 		tokenData,
 		providerURL,
 	)
@@ -277,24 +275,16 @@ func exchangeBrowserAuthorizationCode(client *http.Client, tokenEndpoint string,
 		return "", fmt.Errorf("failed to read token response: %w", err)
 	}
 
+	tokenResponse, err := decodeOIDCTokenResponse("token exchange", response.StatusCode, body, providerURL)
+	if err != nil {
+		return "", err
+	}
+
 	if response.StatusCode != http.StatusOK {
 		return "", oidcHTTPStatusError("token exchange", response.StatusCode, body, providerURL)
 	}
 
-	var tokenResponse TokenResponse
-	if err := json.Unmarshal(body, &tokenResponse); err != nil {
-		return "", fmt.Errorf("failed to parse token response: %w", err)
-	}
-
-	if tokenResponse.Error != "" {
-		return "", FormatOIDCError(tokenResponse.Error, tokenResponse.ErrorDesc, providerURL)
-	}
-
-	if tokenResponse.AccessToken == "" {
-		return "", fmt.Errorf("no access token received")
-	}
-
-	return tokenResponse.AccessToken, nil
+	return accessTokenFromOIDCResponse(tokenResponse, providerURL)
 }
 
 func listenOnCallbackPorts(host string, ports ...int) (net.Listener, int, error) {
