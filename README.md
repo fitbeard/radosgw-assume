@@ -151,7 +151,7 @@ Examples:
   radosgw-assume --verbose                      # Verbose output with detailed info
 
 Environment Variables (when using -e/--env):
-  RADOSGW_OIDC_PROVIDER      - OIDC provider URL (required, except for token auth)
+  RADOSGW_OIDC_PROVIDER      - OIDC issuer URL (required, except for token auth)
   RADOSGW_OIDC_CLIENT_ID     - OIDC client ID (required, except for token auth)
   AWS_ENDPOINT_URL           - RadosGW endpoint URL (required)
   RADOSGW_ROLE_ARN           - Role ARN to assume (required)
@@ -212,7 +212,7 @@ The inner shell receives the same temporary AWS environment as `exec`, plus `RAD
 
 ### 🔧 **Flexibility**
 
-- Supports all major OIDC providers
+- Standards-based provider support through OIDC Discovery
 - Multiple authentication flows
 - Configurable session durations
 - Environment variable override
@@ -271,6 +271,8 @@ radosgw_ssl_verify       = false
 role_arn                 = arn:aws:iam:::role/examples/KeycloakExample
 role_session_name        = my-custom-session
 ```
+
+`radosgw_oidc_provider` is the provider's issuer URL, not an authorization or token endpoint. For browser and device authentication, `radosgw-assume` loads `${issuer}/.well-known/openid-configuration`, verifies that the returned issuer matches, and uses the advertised endpoints. Browser authentication requires `authorization_endpoint` and `token_endpoint`; device authentication additionally requires `device_authorization_endpoint`. Token-based authentication does not perform discovery.
 
 ## RadosGW and OIDC Provider Setup
 

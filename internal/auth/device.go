@@ -18,21 +18,23 @@ type deviceFlowProgress interface {
 type deviceFlowDependencies struct {
 	stderr io.Writer
 
-	generatePKCE  func(string) (string, string, string, error)
-	newHTTPClient func(bool) *http.Client
-	now           func() time.Time
-	sleep         func(time.Duration)
-	newProgress   func() deviceFlowProgress
+	generatePKCE      func(string) (string, string, string, error)
+	newHTTPClient     func(bool) *http.Client
+	discoverEndpoints func(*http.Client, string) (oidcEndpoints, error)
+	now               func() time.Time
+	sleep             func(time.Duration)
+	newProgress       func() deviceFlowProgress
 }
 
 func newDeviceFlowDependencies() deviceFlowDependencies {
 	return deviceFlowDependencies{
-		stderr:        os.Stderr,
-		generatePKCE:  GeneratePKCE,
-		newHTTPClient: NewHTTPClient,
-		now:           time.Now,
-		sleep:         time.Sleep,
-		newProgress:   func() deviceFlowProgress { return NewProgressIndicator() },
+		stderr:            os.Stderr,
+		generatePKCE:      GeneratePKCE,
+		newHTTPClient:     NewHTTPClient,
+		discoverEndpoints: discoverOIDCEndpoints,
+		now:               time.Now,
+		sleep:             time.Sleep,
+		newProgress:       func() deviceFlowProgress { return NewProgressIndicator() },
 	}
 }
 
@@ -50,9 +52,16 @@ func AuthenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 }
 
 func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, dependencies deviceFlowDependencies) (string, error) {
-	endpoints := endpointsForProvider(providerURL)
 	codeVerifier, codeChallenge, resolvedPKCEMethod, err := dependencies.generatePKCE(pkceMethod)
 	if err != nil {
+		return "", err
+	}
+	client := dependencies.newHTTPClient(sslVerify)
+	endpoints, err := dependencies.discoverEndpoints(client, providerURL)
+	if err != nil {
+		return "", err
+	}
+	if err := endpoints.validateDeviceFlow(); err != nil {
 		return "", err
 	}
 
@@ -67,7 +76,6 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 	data.Set("code_challenge", codeChallenge)
 	data.Set("code_challenge_method", resolvedPKCEMethod)
 
-	client := dependencies.newHTTPClient(sslVerify)
 	deviceResponse, err := requestDeviceAuthorization(client, endpoints.deviceAuthorization, data, providerURL)
 	if err != nil {
 		return "", err

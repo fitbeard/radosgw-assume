@@ -50,7 +50,17 @@ func (progress *testBrowserFlowProgress) StopQuiet() {
 
 func TestAuthenticateBrowserFlow(t *testing.T) {
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/protocol/openid-connect/token" {
+		switch request.URL.Path {
+		case "/.well-known/openid-configuration":
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(writer, `{
+				"issuer":%q,
+				"authorization_endpoint":%q,
+				"token_endpoint":%q
+			}`, serverURL(request), serverURL(request)+"/oauth2/default/v1/authorize?audience=storage", serverURL(request)+"/oauth2/default/v1/token")
+			return
+		case "/oauth2/default/v1/token":
+		default:
 			http.NotFound(writer, request)
 			return
 		}
@@ -89,12 +99,13 @@ func TestAuthenticateBrowserFlow(t *testing.T) {
 		if err != nil {
 			return fmt.Errorf("parse authorization URL: %w", err)
 		}
-		if parsedAuthURL.Path != "/protocol/openid-connect/auth" {
+		if parsedAuthURL.Path != "/oauth2/default/v1/authorize" {
 			return fmt.Errorf("authorization path = %q", parsedAuthURL.Path)
 		}
 
 		query := parsedAuthURL.Query()
 		wantQuery := map[string]string{
+			"audience":              "storage",
 			"client_id":             "test-client",
 			"response_type":         "code",
 			"scope":                 "openid profile",
@@ -133,6 +144,7 @@ func TestAuthenticateBrowserFlow(t *testing.T) {
 		}
 		return tokenServer.Client()
 	}
+	dependencies.discoverEndpoints = discoverOIDCEndpoints
 
 	token, err := authenticateBrowserFlow(
 		tokenServer.URL+"/",
@@ -220,6 +232,24 @@ func TestAuthenticateBrowserFlowErrors(t *testing.T) {
 				}
 			},
 			wantContain: "invalid PKCE method",
+		},
+		{
+			name: "OIDC discovery",
+			configure: func(dependencies *browserFlowDependencies) {
+				dependencies.discoverEndpoints = func(*http.Client, string) (oidcEndpoints, error) {
+					return oidcEndpoints{}, errors.New("discovery failed")
+				}
+			},
+			wantContain: "discovery failed",
+		},
+		{
+			name: "missing browser endpoint",
+			configure: func(dependencies *browserFlowDependencies) {
+				dependencies.discoverEndpoints = func(*http.Client, string) (oidcEndpoints, error) {
+					return oidcEndpoints{token: "https://oidc.example.com/token"}, nil
+				}
+			},
+			wantContain: "authorization_endpoint",
 		},
 		{
 			name: "callback server startup",
@@ -508,6 +538,12 @@ func newTestBrowserFlowDependencies(stderr io.Writer) browserFlowDependencies {
 		openBrowser: func(string) error { return nil },
 		newHTTPClient: func(bool) *http.Client {
 			return newBrowserTokenClient(http.StatusOK, `{"access_token":"test-access-token"}`, nil)
+		},
+		discoverEndpoints: func(*http.Client, string) (oidcEndpoints, error) {
+			return oidcEndpoints{
+				authorization: "https://oidc.example.com/authorize",
+				token:         "https://oidc.example.com/token",
+			}, nil
 		},
 		newTimer: func(time.Duration) browserFlowTimer {
 			return &testBrowserFlowTimer{done: make(chan time.Time)}

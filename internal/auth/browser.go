@@ -50,6 +50,7 @@ type browserFlowDependencies struct {
 	startCallbackServer  func(chan<- browserCallbackResult) (*browserCallbackServer, error)
 	openBrowser          func(string) error
 	newHTTPClient        func(bool) *http.Client
+	discoverEndpoints    func(*http.Client, string) (oidcEndpoints, error)
 	newTimer             func(time.Duration) browserFlowTimer
 	newProgress          func() browserFlowProgress
 }
@@ -78,8 +79,9 @@ func newBrowserFlowDependencies() browserFlowDependencies {
 				results,
 			)
 		},
-		openBrowser:   openBrowser,
-		newHTTPClient: NewHTTPClient,
+		openBrowser:       openBrowser,
+		newHTTPClient:     NewHTTPClient,
+		discoverEndpoints: discoverOIDCEndpoints,
 		newTimer: func(timeout time.Duration) browserFlowTimer {
 			return &realBrowserFlowTimer{timer: time.NewTimer(timeout)}
 		},
@@ -101,14 +103,20 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 }
 
 func authenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, dependencies browserFlowDependencies) (string, error) {
-	endpoints := endpointsForProvider(providerURL)
-
 	state, err := dependencies.generateRandomString(32)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
 	codeVerifier, codeChallenge, resolvedPKCEMethod, err := dependencies.generatePKCE(pkceMethod)
 	if err != nil {
+		return "", err
+	}
+	client := dependencies.newHTTPClient(sslVerify)
+	endpoints, err := dependencies.discoverEndpoints(client, providerURL)
+	if err != nil {
+		return "", err
+	}
+	if err := endpoints.validateBrowserFlow(); err != nil {
 		return "", err
 	}
 
@@ -197,7 +205,7 @@ func authenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 	tokenData.Set("code_verifier", codeVerifier)
 
 	accessToken, err := exchangeBrowserAuthorizationCode(
-		dependencies.newHTTPClient(sslVerify),
+		client,
 		endpoints.token,
 		tokenData,
 		providerURL,
@@ -239,7 +247,11 @@ func startBrowserCallbackServer(host string, ports []int, results chan<- browser
 }
 
 func buildBrowserAuthorizationURL(authEndpoint, clientID, redirectURI, scope, state, codeChallenge, pkceMethod string) string {
-	authParams := url.Values{}
+	authURL, err := url.Parse(authEndpoint)
+	if err != nil {
+		return authEndpoint
+	}
+	authParams := authURL.Query()
 	authParams.Set("client_id", clientID)
 	authParams.Set("redirect_uri", redirectURI)
 	authParams.Set("response_type", "code")
@@ -247,7 +259,8 @@ func buildBrowserAuthorizationURL(authEndpoint, clientID, redirectURI, scope, st
 	authParams.Set("state", state)
 	authParams.Set("code_challenge", codeChallenge)
 	authParams.Set("code_challenge_method", pkceMethod)
-	return authEndpoint + "?" + authParams.Encode()
+	authURL.RawQuery = authParams.Encode()
+	return authURL.String()
 }
 
 func printBrowserAuthenticationInstructions(stderr io.Writer, authURL string) {
