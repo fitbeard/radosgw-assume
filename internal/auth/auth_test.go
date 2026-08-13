@@ -151,7 +151,7 @@ func TestAuthenticateDeviceFlow(t *testing.T) {
 			dependencies.newProgress = func() deviceFlowProgress { return &testDeviceFlowProgress{} }
 
 			token, err := authenticateDeviceFlow(
-				server.URL,
+				server.URL+"/",
 				"test-client",
 				"openid profile",
 				pkceMethod,

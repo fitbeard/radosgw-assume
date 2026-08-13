@@ -62,6 +62,46 @@ type oidcErrorResponse struct {
 	ErrorDesc string `json:"error_description"`
 }
 
+type oidcEndpoints struct {
+	authorization       string
+	deviceAuthorization string
+	token               string
+}
+
+func endpointsForProvider(providerURL string) oidcEndpoints {
+	baseURL := strings.TrimRight(providerURL, "/")
+	protocolURL := baseURL + "/protocol/openid-connect"
+
+	return oidcEndpoints{
+		authorization:       protocolURL + "/auth",
+		deviceAuthorization: protocolURL + "/auth/device",
+		token:               protocolURL + "/token",
+	}
+}
+
+func decodeOIDCTokenResponse(operation string, statusCode int, body []byte, providerURL string) (TokenResponse, error) {
+	var tokenResponse TokenResponse
+	if err := json.Unmarshal(body, &tokenResponse); err != nil {
+		if statusCode != http.StatusOK {
+			return TokenResponse{}, oidcHTTPStatusError(operation, statusCode, body, providerURL)
+		}
+		return TokenResponse{}, fmt.Errorf("failed to parse token response: %w", err)
+	}
+
+	return tokenResponse, nil
+}
+
+func accessTokenFromOIDCResponse(tokenResponse TokenResponse, providerURL string) (string, error) {
+	if tokenResponse.Error != "" {
+		return "", FormatOIDCError(tokenResponse.Error, tokenResponse.ErrorDesc, providerURL)
+	}
+	if tokenResponse.AccessToken == "" {
+		return "", fmt.Errorf("no access token received")
+	}
+
+	return tokenResponse.AccessToken, nil
+}
+
 func readOIDCResponseAndClose(response *http.Response) ([]byte, error) {
 	if response.Body == nil {
 		return nil, fmt.Errorf("OIDC response has no body")

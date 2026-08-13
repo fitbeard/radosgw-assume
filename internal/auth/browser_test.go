@@ -135,7 +135,7 @@ func TestAuthenticateBrowserFlow(t *testing.T) {
 	}
 
 	token, err := authenticateBrowserFlow(
-		tokenServer.URL,
+		tokenServer.URL+"/",
 		"test-client",
 		"openid profile",
 		PKCEMethodS256,

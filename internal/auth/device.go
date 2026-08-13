@@ -50,8 +50,7 @@ func AuthenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 }
 
 func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, dependencies deviceFlowDependencies) (string, error) {
-	tokenEndpoint := fmt.Sprintf("%s/protocol/openid-connect/token", providerURL)
-	deviceAuthEndpoint := fmt.Sprintf("%s/protocol/openid-connect/auth/device", providerURL)
+	endpoints := endpointsForProvider(providerURL)
 	codeVerifier, codeChallenge, resolvedPKCEMethod, err := dependencies.generatePKCE(pkceMethod)
 	if err != nil {
 		return "", err
@@ -69,7 +68,7 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 	data.Set("code_challenge_method", resolvedPKCEMethod)
 
 	client := dependencies.newHTTPClient(sslVerify)
-	deviceResponse, err := requestDeviceAuthorization(client, deviceAuthEndpoint, data, providerURL)
+	deviceResponse, err := requestDeviceAuthorization(client, endpoints.deviceAuthorization, data, providerURL)
 	if err != nil {
 		return "", err
 	}
@@ -97,7 +96,7 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 	for dependencies.now().Sub(startTime) < AuthTimeout {
 		dependencies.sleep(time.Duration(interval) * time.Second)
 
-		response, err := client.PostForm(tokenEndpoint, tokenData)
+		response, err := client.PostForm(endpoints.token, tokenData)
 		if err != nil {
 			progress.StopQuiet()
 			return "", fmt.Errorf("token request failed: %w", err)
@@ -108,31 +107,25 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 			return "", fmt.Errorf("failed to read token response: %w", err)
 		}
 
-		var tokenResponse TokenResponse
-		if err := json.Unmarshal(body, &tokenResponse); err != nil {
+		tokenResponse, err := decodeOIDCTokenResponse("token request", response.StatusCode, body, providerURL)
+		if err != nil {
 			progress.StopQuiet()
-			if response.StatusCode != http.StatusOK {
-				return "", oidcHTTPStatusError("token request", response.StatusCode, body, providerURL)
-			}
-			return "", fmt.Errorf("failed to parse token response: %w", err)
+			return "", err
 		}
 
 		switch response.StatusCode {
 		case http.StatusOK:
-			if tokenResponse.Error != "" {
+			accessToken, err := accessTokenFromOIDCResponse(tokenResponse, providerURL)
+			if err != nil {
 				progress.StopQuiet()
-				return "", FormatOIDCError(tokenResponse.Error, tokenResponse.ErrorDesc, providerURL)
-			}
-			if tokenResponse.AccessToken == "" {
-				progress.StopQuiet()
-				return "", fmt.Errorf("no access token received")
+				return "", err
 			}
 
 			progress.Stop()
 			if verboseMode {
 				_, _ = fmt.Fprintln(dependencies.stderr, "# ✓ Authentication successful!")
 			}
-			return tokenResponse.AccessToken, nil
+			return accessToken, nil
 		case http.StatusBadRequest:
 			switch tokenResponse.Error {
 			case "authorization_pending":
