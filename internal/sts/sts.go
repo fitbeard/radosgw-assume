@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/http"
 	"regexp"
 	"strings"
 	"syscall"
@@ -18,6 +17,7 @@ import (
 	"github.com/aws/smithy-go"
 
 	"github.com/fitbeard/radosgw-assume/internal/config"
+	"github.com/fitbeard/radosgw-assume/internal/httpclient"
 )
 
 // STSRequestTimeout bounds the complete role-assumption operation, including retries.
@@ -52,7 +52,7 @@ func assumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessi
 	// Create STS client with anonymous credentials
 	cfg := aws.Config{
 		Credentials: aws.AnonymousCredentials{},
-		HTTPClient:  newSTSHTTPClient(sslVerify, requestTimeout),
+		HTTPClient:  httpclient.New(sslVerify, requestTimeout),
 		Region:      "us-east-1", // Required by AWS SDK, but not used by RadosGW
 	}
 
@@ -123,31 +123,6 @@ func buildAssumeRoleResult(result *sts.AssumeRoleWithWebIdentityOutput, endpoint
 		Expiration:      credentials.Expiration.Format(time.RFC3339),
 		EndpointURL:     endpointURL,
 	}, nil
-}
-
-func newSTSHTTPClient(sslVerify bool, requestTimeout time.Duration) *http.Client {
-	client := &http.Client{Timeout: requestTimeout}
-	if !sslVerify {
-		client.Transport = insecureDefaultTransport()
-	}
-	return client
-}
-
-func insecureDefaultTransport() *http.Transport {
-	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		defaultTransport = &http.Transport{Proxy: http.ProxyFromEnvironment}
-	}
-
-	transport := defaultTransport.Clone()
-	if transport.TLSClientConfig == nil {
-		transport.TLSClientConfig = &tls.Config{}
-	} else {
-		transport.TLSClientConfig = transport.TLSClientConfig.Clone()
-	}
-	transport.TLSClientConfig.InsecureSkipVerify = true
-
-	return transport
 }
 
 type userFacingError struct {

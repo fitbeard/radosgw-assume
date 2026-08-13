@@ -2,9 +2,7 @@ package auth
 
 import (
 	"bytes"
-	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,104 +17,16 @@ func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error)
 }
 
 func TestNewHTTPClient(t *testing.T) {
-	tests := []struct {
-		name          string
-		sslVerify     bool
-		wantTransport bool
-	}{
-		{
-			name:          "SSL verification enabled",
-			sslVerify:     true,
-			wantTransport: false,
-		},
-		{
-			name:          "SSL verification disabled",
-			sslVerify:     false,
-			wantTransport: true,
-		},
+	client := NewHTTPClient(false)
+	if client.Timeout != OIDCRequestTimeout {
+		t.Errorf("NewHTTPClient timeout = %v, want %v", client.Timeout, OIDCRequestTimeout)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			client := NewHTTPClient(tt.sslVerify)
-			if client == nil {
-				t.Fatal("NewHTTPClient returned nil")
-			}
-
-			hasTransport := client.Transport != nil
-			if hasTransport != tt.wantTransport {
-				t.Errorf("NewHTTPClient transport = %v, want transport = %v", hasTransport, tt.wantTransport)
-			}
-			if client.Timeout != OIDCRequestTimeout {
-				t.Errorf("NewHTTPClient timeout = %v, want %v", client.Timeout, OIDCRequestTimeout)
-			}
-
-			if tt.wantTransport {
-				transport, ok := client.Transport.(*http.Transport)
-				if !ok {
-					t.Error("Expected *http.Transport when SSL verification is disabled")
-				} else if transport.TLSClientConfig == nil {
-					t.Error("Expected TLSClientConfig to be set when SSL verification is disabled")
-				} else if !transport.TLSClientConfig.InsecureSkipVerify {
-					t.Error("Expected InsecureSkipVerify to be true when SSL verification is disabled")
-				} else {
-					assertClonedDefaultTransport(t, transport)
-				}
-			}
-		})
-	}
-}
-
-func assertClonedDefaultTransport(t *testing.T, transport *http.Transport) {
-	t.Helper()
-
-	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	transport, ok := client.Transport.(*http.Transport)
 	if !ok {
-		t.Skip("http.DefaultTransport is not an *http.Transport")
+		t.Fatalf("NewHTTPClient transport = %T, want *http.Transport", client.Transport)
 	}
-	if transport == defaultTransport {
-		t.Error("insecure transport must not mutate http.DefaultTransport")
-	}
-	if transport.Proxy == nil && defaultTransport.Proxy != nil {
-		t.Error("insecure transport did not preserve proxy configuration")
-	}
-	if transport.ForceAttemptHTTP2 != defaultTransport.ForceAttemptHTTP2 {
-		t.Errorf("ForceAttemptHTTP2 = %v, want %v", transport.ForceAttemptHTTP2, defaultTransport.ForceAttemptHTTP2)
-	}
-	if transport.MaxIdleConns != defaultTransport.MaxIdleConns {
-		t.Errorf("MaxIdleConns = %d, want %d", transport.MaxIdleConns, defaultTransport.MaxIdleConns)
-	}
-	if transport.IdleConnTimeout != defaultTransport.IdleConnTimeout {
-		t.Errorf("IdleConnTimeout = %v, want %v", transport.IdleConnTimeout, defaultTransport.IdleConnTimeout)
-	}
-	if transport.TLSHandshakeTimeout != defaultTransport.TLSHandshakeTimeout {
-		t.Errorf("TLSHandshakeTimeout = %v, want %v", transport.TLSHandshakeTimeout, defaultTransport.TLSHandshakeTimeout)
-	}
-}
-
-func TestHTTPClientTimeout(t *testing.T) {
-	const requestTimeout = 10 * time.Millisecond
-	client := newHTTPClient(true, requestTimeout)
-	client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		select {
-		case <-request.Context().Done():
-			return nil, request.Context().Err()
-		case <-time.After(time.Second):
-			return nil, errors.New("request context was not cancelled")
-		}
-	})
-
-	response, err := client.Get("http://oidc.example.com")
-	if response != nil {
-		defer func() { _ = response.Body.Close() }()
-	}
-	if err == nil {
-		t.Fatal("HTTP request expected a timeout error")
-	}
-
-	var urlError *url.Error
-	if !errors.As(err, &urlError) || !urlError.Timeout() {
-		t.Errorf("HTTP request error = %v, want a timeout", err)
+	if transport.TLSClientConfig == nil || !transport.TLSClientConfig.InsecureSkipVerify {
+		t.Fatal("NewHTTPClient did not disable TLS verification")
 	}
 }
 
