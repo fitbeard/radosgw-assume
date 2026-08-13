@@ -199,19 +199,35 @@ func (p *ProgressIndicator) stop(printNewline bool) {
 	})
 }
 
-// GenerateRandomString generates a cryptographically secure random string
+// GenerateRandomString generates a cryptographically secure random string.
 func GenerateRandomString(length int) (string, error) {
-	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	result := make([]byte, length)
+	return generateRandomString(length, rand.Reader)
+}
 
-	randomBytes := make([]byte, length)
-	_, err := rand.Read(randomBytes)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+func generateRandomString(length int, randomReader io.Reader) (string, error) {
+	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	const randomByteLimit = 256 - (256 % len(chars))
+
+	if length < 0 {
+		return "", fmt.Errorf("random string length cannot be negative: %d", length)
 	}
 
-	for i := 0; i < length; i++ {
-		result[i] = chars[randomBytes[i]%byte(len(chars))]
+	result := make([]byte, length)
+	for generated := 0; generated < length; {
+		candidates := result[generated:]
+		if _, err := io.ReadFull(randomReader, candidates); err != nil {
+			return "", fmt.Errorf("failed to generate random bytes: %w", err)
+		}
+
+		for _, candidate := range candidates {
+			// 248 is the largest multiple of 62 that fits in one byte. Rejecting
+			// the remaining values prevents modulo bias.
+			if int(candidate) >= randomByteLimit {
+				continue
+			}
+			result[generated] = chars[int(candidate)%len(chars)]
+			generated++
+		}
 	}
 
 	return string(result), nil
