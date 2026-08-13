@@ -146,8 +146,10 @@ Examples:
   radosgw-assume exec -p myprofile -- aws s3 ls # Use specific profile, then run once
   radosgw-assume shell                          # Select profile, then start a shell
   radosgw-assume shell -p myprofile             # Start a shell for a specific profile
-  eval $(radosgw-assume)                        # Interactive with credential export
-  eval $(radosgw-assume -p myprofile)           # Direct profile with export
+  eval "$(radosgw-assume)"                      # Interactive export with eval
+  eval "$(radosgw-assume -p myprofile)"         # Direct profile export with eval
+  source <(radosgw-assume)                      # Interactive export with source
+  source <(radosgw-assume -p myprofile)         # Direct profile export with source
   radosgw-assume --verbose                      # Verbose output with detailed info
 
 Environment Variables (when using -e/--env):
@@ -165,6 +167,24 @@ Environment Variables (when using -e/--env):
 Configuration:
   Edit ~/.aws/config with RadosGW and OIDC settings
 ```
+
+### Export Credentials Into the Current Shell
+
+Use either `eval` or `source` to install the generated credential exports in the current shell:
+
+```bash
+eval "$(radosgw-assume)"
+source <(radosgw-assume)
+```
+
+Both forms support interactive profile selection and all regular options. Select a profile directly when interaction is not needed:
+
+```bash
+eval "$(radosgw-assume -p myprofile)"
+source <(radosgw-assume -p myprofile)
+```
+
+The `source <(...)` form uses Zsh process substitution. Bash and Ksh installations may support the same syntax; use the portable `eval` form when they do not.
 
 ### Run a Command Without `eval`
 
@@ -311,7 +331,7 @@ radosgw_oidc_client_id = storage-access
 role_arn = arn:aws:iam:::role/DeveloperAccess
 EOF
 
-radosgw-assume
+source <(radosgw-assume)
 
 # Get credentials and start working
 aws s3 ls
@@ -337,6 +357,6 @@ aws s3 ls
 
     tar -zxf radosgw-assume-${RADOSGW_ASSUME_RELEASE}-linux-amd64.tar.gz
 
-    eval $(./radosgw-assume -e)
+    eval "$(./radosgw-assume -e)"
     aws s3 sync ./artifacts s3://deployment-bucket/
 ```

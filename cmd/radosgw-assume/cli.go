@@ -28,6 +28,8 @@ const (
 	actionShell
 )
 
+const foregroundExportEnvironment = "RADOSGW_ASSUME_FOREGROUND_EXPORT"
+
 type cliOptions struct {
 	action          cliAction
 	profileName     string
@@ -43,6 +45,8 @@ type cliRunner struct {
 	stdout io.Writer
 	stderr io.Writer
 
+	deferInteractiveExport bool
+
 	loadAWSConfig  func() (*ini.File, error)
 	loadEnvConfig  func() (*config.ProfileConfig, error)
 	getProfiles    func(*ini.File) []string
@@ -55,16 +59,17 @@ type cliRunner struct {
 
 func newCLIRunner(stdout, stderr io.Writer) *cliRunner {
 	return &cliRunner{
-		stdout:         stdout,
-		stderr:         stderr,
-		loadAWSConfig:  config.LoadAWSConfig,
-		loadEnvConfig:  config.GetProfileConfigFromEnv,
-		getProfiles:    config.GetRadosGWProfiles,
-		getProfile:     config.GetProfileConfig,
-		selectProfile:  ui.SelectProfileInteractively,
-		getCredentials: credentials.GetCredentials,
-		environ:        os.Environ,
-		execCommand:    replaceProcess,
+		stdout:                 stdout,
+		stderr:                 stderr,
+		deferInteractiveExport: shouldDeferInteractiveExport(stdout, processIsForeground()),
+		loadAWSConfig:          config.LoadAWSConfig,
+		loadEnvConfig:          config.GetProfileConfigFromEnv,
+		getProfiles:            config.GetRadosGWProfiles,
+		getProfile:             config.GetProfileConfig,
+		selectProfile:          ui.SelectProfileInteractively,
+		getCredentials:         credentials.GetCredentials,
+		environ:                os.Environ,
+		execCommand:            replaceProcess,
 	}
 }
 
@@ -81,6 +86,10 @@ func (r *cliRunner) run(program string, args []string) int {
 		return 0
 	case actionVersion:
 		version.FprintVersion(r.stdout)
+		return 0
+	}
+	if options.action == actionRun && options.profileName == "" && !options.useEnv && r.deferInteractiveExport {
+		fprintForegroundExport(r.stdout, program, args)
 		return 0
 	}
 
@@ -173,6 +182,27 @@ func (r *cliRunner) run(program string, args []string) int {
 		ui.FprintCredentialsOnly(r.stdout, result)
 	}
 	return 0
+}
+
+func shouldDeferInteractiveExport(output io.Writer, processForeground bool) bool {
+	if os.Getenv(foregroundExportEnvironment) != "" {
+		return false
+	}
+	file, ok := output.(*os.File)
+	if !ok {
+		return false
+	}
+	fileInfo, err := file.Stat()
+	return err == nil && fileInfo.Mode()&os.ModeNamedPipe != 0 && !processForeground
+}
+
+func fprintForegroundExport(w io.Writer, program string, args []string) {
+	command := make([]string, 0, len(args)+1)
+	command = append(command, ui.ShellQuote(program))
+	for _, arg := range args {
+		command = append(command, ui.ShellQuote(arg))
+	}
+	_, _ = fmt.Fprintf(w, "eval \"$(%s=1 %s)\"\n", foregroundExportEnvironment, strings.Join(command, " "))
 }
 
 func parseCLIArguments(program string, args []string) (cliOptions, error) {

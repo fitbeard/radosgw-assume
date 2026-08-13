@@ -2,7 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -209,6 +213,79 @@ func TestCLIRunnerInformationalActions(t *testing.T) {
 				t.Errorf("run() stderr = %q, want empty", stderr.String())
 			}
 		})
+	}
+}
+
+func TestCLIRunnerDefersInteractiveExportFromBackgroundPipe(t *testing.T) {
+	runner, stdout, stderr := newTestCLIRunner(t)
+	runner.deferInteractiveExport = true
+
+	exitCode := runner.run("/path/radosgw assume", []string{"--verbose", "--duration", "2h"})
+	if exitCode != 0 {
+		t.Fatalf("run() exit code = %d, want 0; stderr: %s", exitCode, stderr.String())
+	}
+	want := "eval \"$(RADOSGW_ASSUME_FOREGROUND_EXPORT=1 '/path/radosgw assume' '--verbose' '--duration' '2h')\"\n"
+	if stdout.String() != want {
+		t.Errorf("run() stdout = %q, want %q", stdout.String(), want)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("run() stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestShouldDeferInteractiveExport(t *testing.T) {
+	t.Setenv(foregroundExportEnvironment, "")
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = reader.Close()
+		_ = writer.Close()
+	})
+
+	if !shouldDeferInteractiveExport(writer, false) {
+		t.Error("background named-pipe output should defer interactive export")
+	}
+	if shouldDeferInteractiveExport(writer, true) {
+		t.Error("foreground named-pipe output should not defer interactive export")
+	}
+
+	t.Setenv(foregroundExportEnvironment, "1")
+	if shouldDeferInteractiveExport(writer, false) {
+		t.Error("foreground-export child should not defer recursively")
+	}
+}
+
+func TestForegroundExportCanBeSourcedFromZshProcessSubstitution(t *testing.T) {
+	exporter := filepath.Join(t.TempDir(), "radosgw-assume-test-exporter")
+	exporterScript := "#!/bin/sh\n" +
+		"test \"$RADOSGW_ASSUME_FOREGROUND_EXPORT\" = 1 || exit 9\n" +
+		"printf \"export RADOSGW_SOURCE_TEST='works'\\n\"\n"
+	if err := os.WriteFile(exporter, []byte(exporterScript), 0o700); err != nil {
+		t.Fatalf("write exporter: %v", err)
+	}
+
+	var wrapper bytes.Buffer
+	fprintForegroundExport(&wrapper, exporter, nil)
+
+	shellPath, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, shellPath, "-c", `source <(printf '%s\n' "$RADOSGW_TEST_WRAPPER"); printf '%s\n' "$RADOSGW_SOURCE_TEST"`)
+	command.Env = append(os.Environ(), "RADOSGW_TEST_WRAPPER="+wrapper.String())
+	output, err := command.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("source process substitution did not exit: %v", ctx.Err())
+	}
+	if err != nil {
+		t.Fatalf("source process substitution failed: %v; output: %s", err, output)
+	}
+	if string(output) != "works\n" {
+		t.Errorf("source process substitution output = %q, want works", output)
 	}
 }
 

@@ -23,8 +23,8 @@ func TestShellQuote(t *testing.T) {
 
 	for input, expected := range tests {
 		t.Run(input, func(t *testing.T) {
-			if result := shellQuote(input); result != expected {
-				t.Errorf("shellQuote(%q) = %q, want %q", input, result, expected)
+			if result := ShellQuote(input); result != expected {
+				t.Errorf("ShellQuote(%q) = %q, want %q", input, result, expected)
 			}
 		})
 	}
@@ -56,6 +56,8 @@ func TestFprintUsageRequiresProfileFlag(t *testing.T) {
 		"radosgw-assume exec -p myprofile -- aws s3 ls",
 		"radosgw-assume shell -p myprofile",
 		"radosgw-assume -p myprofile",
+		"eval \"$(radosgw-assume)\"",
+		"source <(radosgw-assume)",
 	} {
 		if !strings.Contains(output.String(), want) {
 			t.Errorf("FprintUsage() output missing %q", want)
@@ -155,8 +157,13 @@ func TestFprintCredentialsUsesProfileFlag(t *testing.T) {
 	}
 
 	FprintCredentials(&stdout, &stderr, result)
-	if !strings.Contains(stderr.String(), "# Usage: eval $(radosgw-assume -p 'profile with spaces')") {
-		t.Errorf("FprintCredentials() stderr = %q, want profile-flag usage hint", stderr.String())
+	for _, want := range []string{
+		"# Export with eval: eval \"$(radosgw-assume -p 'profile with spaces')\"",
+		"# Export with source: source <(radosgw-assume -p 'profile with spaces')",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("FprintCredentials() stderr = %q, want usage hint %q", stderr.String(), want)
+		}
 	}
 }
 
