@@ -52,7 +52,21 @@ func newCredentialDependencies() credentialDependencies {
 
 // GetCredentials orchestrates the authentication and role assumption process.
 func GetCredentials(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
-	return getCredentials(profileName, profileConfig, awsConfig, verboseMode, sessionDuration, newCredentialDependencies())
+	return GetCredentialsWithOutput(profileName, profileConfig, awsConfig, verboseMode, sessionDuration, os.Stderr)
+}
+
+// GetCredentialsWithOutput orchestrates authentication and role assumption,
+// writing user interaction and verbose diagnostics to output.
+func GetCredentialsWithOutput(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration, output io.Writer) (*config.AssumeRoleResult, error) {
+	dependencies := newCredentialDependencies()
+	dependencies.stderr = output
+	dependencies.authenticateDevice = func(providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
+		return auth.AuthenticateDeviceFlowWithOutput(providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode, output)
+	}
+	dependencies.authenticateBrowser = func(providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
+		return auth.AuthenticateBrowserFlowWithOutput(providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode, output)
+	}
+	return getCredentials(profileName, profileConfig, awsConfig, verboseMode, sessionDuration, dependencies)
 }
 
 func getCredentials(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration, dependencies credentialDependencies) (*config.AssumeRoleResult, error) {

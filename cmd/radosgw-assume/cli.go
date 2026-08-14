@@ -26,6 +26,7 @@ const (
 	actionVersion
 	actionExec
 	actionShell
+	actionCredentialProcess
 )
 
 const foregroundExportEnvironment = "RADOSGW_ASSUME_FOREGROUND_EXPORT"
@@ -47,14 +48,16 @@ type cliRunner struct {
 
 	deferInteractiveExport bool
 
-	loadAWSConfig  func() (*ini.File, error)
-	loadEnvConfig  func() (*config.ProfileConfig, error)
-	getProfiles    func(*ini.File) []string
-	getProfile     func(string, *ini.File) (*config.ProfileConfig, error)
-	selectProfile  func([]string) (string, error)
-	getCredentials func(string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error)
-	environ        func() []string
-	execCommand    func([]string, []string) error
+	loadAWSConfig         func() (*ini.File, error)
+	loadEnvConfig         func() (*config.ProfileConfig, error)
+	getProfiles           func(*ini.File) []string
+	getProfile            func(string, *ini.File) (*config.ProfileConfig, error)
+	selectProfile         func([]string) (string, error)
+	getCredentials        func(string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error)
+	getProcessCredentials func(string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer) (*config.AssumeRoleResult, error)
+	openTerminal          func() (io.WriteCloser, error)
+	environ               func() []string
+	execCommand           func([]string, []string) error
 }
 
 func newCLIRunner(stdout, stderr io.Writer) *cliRunner {
@@ -68,6 +71,8 @@ func newCLIRunner(stdout, stderr io.Writer) *cliRunner {
 		getProfile:             config.GetProfileConfig,
 		selectProfile:          ui.SelectProfileInteractively,
 		getCredentials:         credentials.GetCredentials,
+		getProcessCredentials:  credentials.GetCredentialsWithOutput,
+		openTerminal:           openControllingTerminal,
 		environ:                os.Environ,
 		execCommand:            replaceProcess,
 	}
@@ -142,7 +147,18 @@ func (r *cliRunner) run(program string, args []string) int {
 		profileConfig.RoleSessionName = options.sessionName
 	}
 
-	result, err := r.getCredentials(profileName, profileConfig, awsConfig, options.verbose, options.sessionDuration)
+	var result *config.AssumeRoleResult
+	if options.action == actionCredentialProcess {
+		authenticationOutput := r.stderr
+		terminal, terminalErr := r.openTerminal()
+		if terminalErr == nil && terminal != nil {
+			defer func() { _ = terminal.Close() }()
+			authenticationOutput = terminal
+		}
+		result, err = r.getProcessCredentials(profileName, profileConfig, awsConfig, options.verbose, options.sessionDuration, authenticationOutput)
+	} else {
+		result, err = r.getCredentials(profileName, profileConfig, awsConfig, options.verbose, options.sessionDuration)
+	}
 	if err != nil {
 		_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
 		return 1
@@ -175,6 +191,13 @@ func (r *cliRunner) run(program string, args []string) int {
 		}
 		return 0
 	}
+	if options.action == actionCredentialProcess {
+		if err := ui.FprintCredentialProcess(r.stdout, result); err != nil {
+			_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
+			return 1
+		}
+		return 0
+	}
 
 	if options.verbose {
 		ui.FprintCredentials(r.stdout, r.stderr, result)
@@ -182,6 +205,10 @@ func (r *cliRunner) run(program string, args []string) int {
 		ui.FprintCredentialsOnly(r.stdout, result)
 	}
 	return 0
+}
+
+func openControllingTerminal() (io.WriteCloser, error) {
+	return os.OpenFile("/dev/tty", os.O_WRONLY, 0)
 }
 
 func shouldDeferInteractiveExport(output io.Writer, processForeground bool) bool {
@@ -219,6 +246,9 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 			startIndex = 1
 		case "shell":
 			options.action = actionShell
+			startIndex = 1
+		case "credential-process":
+			options.action = actionCredentialProcess
 			startIndex = 1
 		}
 	}
@@ -291,6 +321,9 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 			if options.action == actionShell {
 				return cliOptions{}, fmt.Errorf("unexpected shell argument '%s'\nUsage: %s shell [OPTIONS]", arg, program)
 			}
+			if options.action == actionCredentialProcess {
+				return cliOptions{}, fmt.Errorf("unexpected credential-process argument '%s'\nUsage: %s credential-process (-p PROFILE | --env)", arg, program)
+			}
 			return cliOptions{}, fmt.Errorf("unexpected argument '%s': select a profile with -p or --profile\nUse -h or --help for usage information", arg)
 		}
 	}
@@ -299,6 +332,9 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 	}
 	if options.useEnv && options.profileName != "" {
 		return cliOptions{}, fmt.Errorf("--env and --profile cannot be used together")
+	}
+	if options.action == actionCredentialProcess && options.profileName == "" && !options.useEnv {
+		return cliOptions{}, fmt.Errorf("credential-process requires -p/--profile or --env\nUsage: %s credential-process (-p PROFILE | --env)", program)
 	}
 	if options.noPrompt && options.action != actionShell {
 		return cliOptions{}, fmt.Errorf("--no-prompt can only be used with the shell command")
