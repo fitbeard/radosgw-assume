@@ -129,6 +129,7 @@ Options:
   -s, --session NAME        Session name (default: radosgw-assume-TIMESTAMP)
                             Only alphanumeric characters and dashes allowed
       --no-prompt           Keep the original prompt in an authenticated shell
+      --no-cache            Bypass the credential-process cache
 
 Commands:
   exec                      Run a command with temporary credentials
@@ -137,23 +138,24 @@ Commands:
   version                   Show version information
 
 Examples:
-  radosgw-assume                                 # Interactive selection, clean output
-  radosgw-assume -p myprofile                    # Use specific profile, clean output
-  radosgw-assume --env                           # Use environment variables
-  radosgw-assume -d 2h -p myprofile              # 2-hour session duration
-  radosgw-assume -d 30m -p myprofile             # 30-minute session duration
-  radosgw-assume -d 15m -p myprofile             # 15-minute session duration (minimum)
-  radosgw-assume -s my-session -p myprofile      # Custom session name
-  radosgw-assume exec -- aws s3 ls               # Select profile, then run once
-  radosgw-assume exec -p myprofile -- aws s3 ls  # Use specific profile, then run once
-  radosgw-assume shell                           # Select profile, then start a shell
-  radosgw-assume shell -p myprofile              # Start a shell for a specific profile
-  radosgw-assume credential-process -p myprofile # Emit AWS credential_process JSON
-  eval "$(radosgw-assume)"                       # Interactive export with eval
-  eval "$(radosgw-assume -p myprofile)"          # Direct profile export with eval
-  source <(radosgw-assume)                       # Interactive export with source
-  source <(radosgw-assume -p myprofile)          # Direct profile export with source
-  radosgw-assume --verbose                       # Verbose output with detailed info
+  radosgw-assume                                        # Interactive selection, clean output
+  radosgw-assume -p myprofile                           # Use specific profile, clean output
+  radosgw-assume --env                                  # Use environment variables
+  radosgw-assume -d 2h -p myprofile                     # 2-hour session duration
+  radosgw-assume -d 30m -p myprofile                    # 30-minute session duration
+  radosgw-assume -d 15m -p myprofile                    # 15-minute session duration (minimum)
+  radosgw-assume -s my-session -p myprofile             # Custom session name
+  radosgw-assume exec -- aws s3 ls                      # Select profile, then run once
+  radosgw-assume exec -p myprofile -- aws s3 ls         # Use specific profile, then run once
+  radosgw-assume shell                                  # Select profile, then start a shell
+  radosgw-assume shell -p myprofile                     # Start a shell for a specific profile
+  radosgw-assume credential-process -p myprofile        # Emit AWS credential_process JSON
+  radosgw-assume credential-process -d 12h -p myprofile # Request and cache a 12-hour session
+  eval "$(radosgw-assume)"                              # Interactive export with eval
+  eval "$(radosgw-assume -p myprofile)"                 # Direct profile export with eval
+  source <(radosgw-assume)                              # Interactive export with source
+  source <(radosgw-assume -p myprofile)                 # Direct profile export with source
+  radosgw-assume --verbose                              # Verbose output with detailed info
 
 Environment Variables (when using -e/--env):
   RADOSGW_OIDC_PROVIDER      - OIDC issuer URL (required, except for token auth)
@@ -226,6 +228,10 @@ radosgw-assume credential-process -p assume-device
 
 It writes the AWS process credential provider JSON document to stdout. When a controlling terminal is available, authentication instructions and progress are written there because AWS tooling can capture process stderr; otherwise they fall back to stderr. The command requires an explicit `-p/--profile` or `--env`; integrations must not depend on an interactive profile selector.
 
+Temporary STS credentials are cached by default in the operating system's user cache directory. Cache directories and files use `0700` and `0600` permissions, writes are atomic, and concurrent requests for the same profile are locked so they do not open multiple authentication flows. Cache entries are isolated by effective profile configuration, requested duration, and token identity for token authentication. The renewal window is 10% of the requested duration, bounded to a minimum of one minute and a maximum of 15 minutes. Use `--no-cache` to bypass both cache reads and writes.
+
+The cache is stored in `~/Library/Caches/radosgw-assume/credentials-v1` on macOS. On Linux it is stored in `$XDG_CACHE_HOME/radosgw-assume/credentials-v1`, or `~/.cache/radosgw-assume/credentials-v1` when `XDG_CACHE_HOME` is unset. The hashed `.json` files contain live temporary credentials and must not be displayed, shared, or committed.
+
 Configure a separate AWS consumer profile. Do not add `credential_process` to the RadosGW authentication profile itself: its `role_arn` and `source_profile` keys have different meanings to AWS tooling.
 
 ```ini
@@ -237,9 +243,11 @@ role_arn       = arn:aws:iam:::role/examples/KeycloakExample
 
 # Separate profile used by AWS CLI, SDKs, and IDEs.
 [profile assume-device-sdk]
-credential_process = /absolute/path/to/radosgw-assume credential-process -p assume-device
+credential_process = /absolute/path/to/radosgw-assume credential-process -d 12h -p assume-device
 endpoint_url        = https://storage.example.com
 ```
+
+The `endpoint_url` setting must be repeated in the AWS consumer profile. AWS does not inherit it from the authentication profile, and the process credential JSON format has no endpoint field. Without this setting, AWS CLI may send the temporary RadosGW credentials to an AWS endpoint and report `InvalidAccessKeyId` even though the credentials were issued successfully.
 
 Use an absolute executable path when possible. AWS configuration does not expand `~` or environment variables in `credential_process`. If the path contains spaces, surround the executable path with double quotes.
 
