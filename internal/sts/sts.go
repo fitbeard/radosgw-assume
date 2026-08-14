@@ -18,6 +18,7 @@ import (
 
 	"github.com/fitbeard/radosgw-assume/internal/config"
 	"github.com/fitbeard/radosgw-assume/internal/httpclient"
+	"github.com/fitbeard/radosgw-assume/pkg/duration"
 )
 
 // STSRequestTimeout bounds the complete role-assumption operation, including retries.
@@ -73,7 +74,7 @@ func assumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessi
 
 	result, err := stsClient.AssumeRoleWithWebIdentity(requestContext, input)
 	if err != nil {
-		return nil, formatSTSError(err, endpointURL, roleArn)
+		return nil, formatSTSError(err, endpointURL, roleArn, sessionDuration)
 	}
 
 	return buildAssumeRoleResult(result, endpointURL)
@@ -146,7 +147,7 @@ func newUserFacingError(cause error, format string, args ...any) error {
 }
 
 // formatSTSError converts AWS SDK errors into user-friendly error messages
-func formatSTSError(err error, endpointURL, roleArn string) error {
+func formatSTSError(err error, endpointURL, roleArn string, sessionDuration time.Duration) error {
 	// Check for API errors from AWS SDK
 	var apiErr smithy.APIError
 	if errors.As(err, &apiErr) {
@@ -168,6 +169,9 @@ func formatSTSError(err error, endpointURL, roleArn string) error {
 		case "IDPCommunicationError":
 			return newUserFacingError(err, "IDP communication error: RadosGW could not communicate with the identity provider - "+
 				"check network connectivity and OIDC provider URL configuration")
+		case "InvalidArgument":
+			return newUserFacingError(err, "invalid STS request for role '%s': RadosGW rejected one or more parameters - "+
+				"requested session duration is %s; verify it does not exceed the role's max_session_duration", roleArn, duration.Format(sessionDuration))
 		default:
 			// Include both code and message for unknown errors
 			if message != "" {

@@ -38,6 +38,9 @@ func TestAssumeRoleWithWebIdentity(t *testing.T) {
 		if got := r.Form.Get("WebIdentityToken"); got != "test-token" {
 			t.Errorf("WebIdentityToken = %q, want test-token", got)
 		}
+		if got := r.Form.Get("DurationSeconds"); got != "3600" {
+			t.Errorf("DurationSeconds = %q, want 3600", got)
+		}
 
 		w.Header().Set("Content-Type", "text/xml")
 		_, _ = fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>
@@ -482,6 +485,11 @@ func TestFormatSTSError(t *testing.T) {
 			wantContain: "IDP communication error",
 		},
 		{
+			name:        "invalid argument API error",
+			err:         &smithy.GenericAPIError{Code: "InvalidArgument", Message: "UnknownError", Fault: smithy.FaultClient},
+			wantContain: "requested session duration is 2h; verify it does not exceed the role's max_session_duration",
+		},
+		{
 			name:        "unknown API error with message",
 			err:         fmt.Errorf("wrapped: %w", &smithy.GenericAPIError{Code: "CustomError", Message: "custom message", Fault: smithy.FaultClient}),
 			wantContain: "STS error [CustomError]: custom message",
@@ -525,7 +533,7 @@ func TestFormatSTSError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := formatSTSError(tt.err, endpointURL, roleArn)
+			result := formatSTSError(tt.err, endpointURL, roleArn, 2*time.Hour)
 			if !strings.Contains(result.Error(), tt.wantContain) {
 				t.Errorf("formatSTSError() = %v, want to contain %v", result, tt.wantContain)
 			}
@@ -546,7 +554,7 @@ func TestFormatSTSErrorDoesNotClassifyMessageText(t *testing.T) {
 	} {
 		t.Run(message, func(t *testing.T) {
 			cause := errors.New(message)
-			err := formatSTSError(cause, "https://s3.example.com", "arn:aws:iam:::role/TestRole")
+			err := formatSTSError(cause, "https://s3.example.com", "arn:aws:iam:::role/TestRole", time.Hour)
 			if !strings.HasPrefix(err.Error(), "failed to assume role") {
 				t.Errorf("formatSTSError() classified untyped message %q: %v", message, err)
 			}

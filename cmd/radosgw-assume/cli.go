@@ -39,6 +39,7 @@ type cliOptions struct {
 	sessionDuration time.Duration
 	sessionName     string
 	noPrompt        bool
+	noCache         bool
 	command         []string
 }
 
@@ -54,7 +55,7 @@ type cliRunner struct {
 	getProfile            func(string, *ini.File) (*config.ProfileConfig, error)
 	selectProfile         func([]string) (string, error)
 	getCredentials        func(string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error)
-	getProcessCredentials func(string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer) (*config.AssumeRoleResult, error)
+	getProcessCredentials func(string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer, bool) (*config.AssumeRoleResult, error)
 	openTerminal          func() (io.WriteCloser, error)
 	environ               func() []string
 	execCommand           func([]string, []string) error
@@ -71,7 +72,7 @@ func newCLIRunner(stdout, stderr io.Writer) *cliRunner {
 		getProfile:             config.GetProfileConfig,
 		selectProfile:          ui.SelectProfileInteractively,
 		getCredentials:         credentials.GetCredentials,
-		getProcessCredentials:  credentials.GetCredentialsWithOutput,
+		getProcessCredentials:  credentials.GetProcessCredentials,
 		openTerminal:           openControllingTerminal,
 		environ:                os.Environ,
 		execCommand:            replaceProcess,
@@ -155,7 +156,7 @@ func (r *cliRunner) run(program string, args []string) int {
 			defer func() { _ = terminal.Close() }()
 			authenticationOutput = terminal
 		}
-		result, err = r.getProcessCredentials(profileName, profileConfig, awsConfig, options.verbose, options.sessionDuration, authenticationOutput)
+		result, err = r.getProcessCredentials(profileName, profileConfig, awsConfig, options.verbose, options.sessionDuration, authenticationOutput, options.noCache)
 	} else {
 		result, err = r.getCredentials(profileName, profileConfig, awsConfig, options.verbose, options.sessionDuration)
 	}
@@ -273,6 +274,8 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 			options.verbose = true
 		case "--no-prompt":
 			options.noPrompt = true
+		case "--no-cache":
+			options.noCache = true
 		case "-e", "--env":
 			options.useEnv = true
 		case "-p", "--profile":
@@ -338,6 +341,9 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 	}
 	if options.noPrompt && options.action != actionShell {
 		return cliOptions{}, fmt.Errorf("--no-prompt can only be used with the shell command")
+	}
+	if options.noCache && options.action != actionCredentialProcess {
+		return cliOptions{}, fmt.Errorf("--no-cache can only be used with the credential-process command")
 	}
 
 	return options, nil
