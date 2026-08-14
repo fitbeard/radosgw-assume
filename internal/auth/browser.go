@@ -91,6 +91,15 @@ func newBrowserFlowDependencies() browserFlowDependencies {
 
 // AuthenticateBrowserFlow performs OIDC authorization code flow with PKCE.
 func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool) (string, error) {
+	return AuthenticateBrowserFlowWithOutput(providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode, os.Stderr)
+}
+
+// AuthenticateBrowserFlowWithOutput performs OIDC authorization code flow
+// authentication and writes user interaction to output.
+func AuthenticateBrowserFlowWithOutput(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, output io.Writer) (string, error) {
+	dependencies := newBrowserFlowDependencies()
+	dependencies.stderr = output
+	dependencies.newProgress = func() browserFlowProgress { return newProgressIndicatorWithOutput(output) }
 	return authenticateBrowserFlow(
 		providerURL,
 		clientID,
@@ -98,7 +107,7 @@ func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 		pkceMethod,
 		sslVerify,
 		verboseMode,
-		newBrowserFlowDependencies(),
+		dependencies,
 	)
 }
 

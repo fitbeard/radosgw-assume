@@ -285,8 +285,12 @@ type ProgressIndicator struct {
 
 // NewProgressIndicator creates and starts a new progress indicator.
 func NewProgressIndicator() *ProgressIndicator {
+	return newProgressIndicatorWithOutput(os.Stderr)
+}
+
+func newProgressIndicatorWithOutput(output io.Writer) *ProgressIndicator {
 	ticker := time.NewTicker(ProgressInterval)
-	return newProgressIndicator(os.Stderr, ticker.C, ticker.Stop)
+	return newProgressIndicator(output, ticker.C, ticker.Stop)
 }
 
 func newProgressIndicator(output io.Writer, ticks <-chan time.Time, stopTicker func()) *ProgressIndicator {

@@ -3,7 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -129,6 +132,26 @@ func TestParseCLIArguments(t *testing.T) {
 			args: []string{"shell", "--help"},
 			want: cliOptions{action: actionHelp, sessionDuration: time.Hour},
 		},
+		{
+			name: "credential process with profile",
+			args: []string{"credential-process", "--profile", "profile", "--duration", "2h", "--verbose"},
+			want: cliOptions{
+				action:          actionCredentialProcess,
+				profileName:     "profile",
+				verbose:         true,
+				sessionDuration: 2 * time.Hour,
+			},
+		},
+		{
+			name: "credential process with environment configuration",
+			args: []string{"credential-process", "--env"},
+			want: cliOptions{action: actionCredentialProcess, useEnv: true, sessionDuration: time.Hour},
+		},
+		{
+			name: "credential process help",
+			args: []string{"credential-process", "--help"},
+			want: cliOptions{action: actionHelp, sessionDuration: time.Hour},
+		},
 	}
 
 	for _, tt := range tests {
@@ -173,6 +196,10 @@ func TestParseCLIArgumentsErrors(t *testing.T) {
 		{name: "shell profile and environment", args: []string{"shell", "--profile", "profile", "--env"}, wantMessage: "--env and --profile cannot be used together"},
 		{name: "prompt option without shell", args: []string{"--no-prompt"}, wantMessage: "--no-prompt can only be used with the shell command"},
 		{name: "prompt option with exec", args: []string{"exec", "--no-prompt", "--", "aws"}, wantMessage: "--no-prompt can only be used with the shell command"},
+		{name: "credential process missing configuration", args: []string{"credential-process"}, wantMessage: "credential-process requires -p/--profile or --env"},
+		{name: "credential process positional profile", args: []string{"credential-process", "profile"}, wantMessage: "unexpected credential-process argument 'profile'"},
+		{name: "credential process delimiter", args: []string{"credential-process", "--"}, wantMessage: "unexpected argument '--'"},
+		{name: "credential process prompt option", args: []string{"credential-process", "-p", "profile", "--no-prompt"}, wantMessage: "--no-prompt can only be used with the shell command"},
 	}
 
 	for _, tt := range tests {
@@ -439,6 +466,116 @@ func TestCLIRunnerExecCommand(t *testing.T) {
 	if stderr.Len() != 0 {
 		t.Errorf("run() stderr = %q, want empty", stderr.String())
 	}
+}
+
+func TestCLIRunnerCredentialProcess(t *testing.T) {
+	runner, stdout, stderr := newTestCLIRunner(t)
+	awsConfig := ini.Empty()
+	profileConfig := &config.ProfileConfig{RoleSessionName: "config-session"}
+	wantResult := testAssumeRoleResult("profile")
+	var authenticationOutput bytes.Buffer
+	runner.openTerminal = func() (io.WriteCloser, error) {
+		return testWriteCloser{Writer: &authenticationOutput}, nil
+	}
+
+	runner.loadAWSConfig = func() (*ini.File, error) { return awsConfig, nil }
+	runner.getProfile = func(profileName string, gotConfig *ini.File) (*config.ProfileConfig, error) {
+		if profileName != "profile" || gotConfig != awsConfig {
+			t.Errorf("getProfile() = (%q, %p), want profile and test config", profileName, gotConfig)
+		}
+		return profileConfig, nil
+	}
+	runner.getProcessCredentials = func(profileName string, gotProfile *config.ProfileConfig, gotConfig *ini.File, verbose bool, sessionDuration time.Duration, output io.Writer) (*config.AssumeRoleResult, error) {
+		if profileName != "profile" || gotProfile != profileConfig || gotConfig != awsConfig {
+			t.Error("getProcessCredentials() received unexpected configuration")
+		}
+		if !verbose || sessionDuration != 2*time.Hour {
+			t.Errorf("getCredentials() options = (verbose %v, duration %v), want true and 2h", verbose, sessionDuration)
+		}
+		if gotProfile.RoleSessionName != "process-session" {
+			t.Errorf("session name = %q, want process-session", gotProfile.RoleSessionName)
+		}
+		_, _ = fmt.Fprint(output, "authentication interaction")
+		return wantResult, nil
+	}
+
+	exitCode := runner.run("radosgw-assume", []string{
+		"credential-process", "--profile", "profile", "--verbose", "--duration", "2h", "--session", "process-session",
+	})
+	if exitCode != 0 {
+		t.Fatalf("run() exit code = %d, want 0; stderr: %s", exitCode, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("run() stderr = %q, want empty", stderr.String())
+	}
+	if authenticationOutput.String() != "authentication interaction" {
+		t.Errorf("authentication output = %q, want terminal interaction", authenticationOutput.String())
+	}
+
+	var output map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+		t.Fatalf("credential-process stdout is not valid JSON: %v; output: %s", err, stdout.String())
+	}
+	want := map[string]any{
+		"Version":         float64(1),
+		"AccessKeyId":     wantResult.AccessKeyID,
+		"SecretAccessKey": wantResult.SecretAccessKey,
+		"SessionToken":    wantResult.SessionToken,
+		"Expiration":      wantResult.Expiration,
+	}
+	if !reflect.DeepEqual(output, want) {
+		t.Errorf("credential-process output = %#v, want %#v", output, want)
+	}
+
+	runner.stdout = cliErrorWriter{}
+	stderr.Reset()
+	exitCode = runner.run("radosgw-assume", []string{"credential-process", "--profile", "profile", "--verbose", "--duration", "2h", "--session", "process-session"})
+	if exitCode != 1 {
+		t.Errorf("run() with output failure exit code = %d, want 1", exitCode)
+	}
+	if !strings.Contains(stderr.String(), "Error: write credential process output: write failed") {
+		t.Errorf("run() stderr = %q, want output failure", stderr.String())
+	}
+}
+
+func TestCLIRunnerCredentialProcessFallsBackToStderr(t *testing.T) {
+	runner, stdout, stderr := newTestCLIRunner(t)
+	runner.loadAWSConfig = func() (*ini.File, error) { return ini.Empty(), nil }
+	runner.getProfile = func(string, *ini.File) (*config.ProfileConfig, error) {
+		return &config.ProfileConfig{}, nil
+	}
+	runner.openTerminal = func() (io.WriteCloser, error) {
+		return nil, errors.New("no controlling terminal")
+	}
+	runner.getProcessCredentials = func(_ string, _ *config.ProfileConfig, _ *ini.File, _ bool, _ time.Duration, output io.Writer) (*config.AssumeRoleResult, error) {
+		_, _ = fmt.Fprint(output, "authentication interaction")
+		return testAssumeRoleResult("profile"), nil
+	}
+
+	exitCode := runner.run("radosgw-assume", []string{"credential-process", "--profile", "profile"})
+	if exitCode != 0 {
+		t.Fatalf("run() exit code = %d, want 0; stderr: %s", exitCode, stderr.String())
+	}
+	if stderr.String() != "authentication interaction" {
+		t.Errorf("run() stderr = %q, want fallback interaction", stderr.String())
+	}
+	if !json.Valid(stdout.Bytes()) {
+		t.Errorf("run() stdout = %q, want valid credential JSON", stdout.String())
+	}
+}
+
+type cliErrorWriter struct{}
+
+func (cliErrorWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
+}
+
+type testWriteCloser struct {
+	io.Writer
+}
+
+func (testWriteCloser) Close() error {
+	return nil
 }
 
 func TestCLIRunnerShell(t *testing.T) {
@@ -752,6 +889,14 @@ func newTestCLIRunner(t *testing.T) (*cliRunner, *bytes.Buffer, *bytes.Buffer) {
 		},
 		getCredentials: func(string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error) {
 			t.Fatal("unexpected getCredentials() call")
+			return nil, nil
+		},
+		getProcessCredentials: func(string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer) (*config.AssumeRoleResult, error) {
+			t.Fatal("unexpected getProcessCredentials() call")
+			return nil, nil
+		},
+		openTerminal: func() (io.WriteCloser, error) {
+			t.Fatal("unexpected openTerminal() call")
 			return nil, nil
 		},
 		environ: func() []string {

@@ -116,6 +116,7 @@ radosgw-assume -h
 Usage: radosgw-assume [OPTIONS]
        radosgw-assume exec [OPTIONS] -- COMMAND [ARG...]
        radosgw-assume shell [OPTIONS]
+       radosgw-assume credential-process (-p PROFILE | --env) [OPTIONS]
        radosgw-assume (interactive profile selection)
 
 Options:
@@ -132,25 +133,27 @@ Options:
 Commands:
   exec                      Run a command with temporary credentials
   shell                     Start an interactive shell with temporary credentials
+  credential-process        Emit AWS process credential provider JSON
   version                   Show version information
 
 Examples:
-  radosgw-assume                                # Interactive selection, clean output
-  radosgw-assume -p myprofile                   # Use specific profile, clean output
-  radosgw-assume --env                          # Use environment variables
-  radosgw-assume -d 2h -p myprofile             # 2-hour session duration
-  radosgw-assume -d 30m -p myprofile            # 30-minute session duration
-  radosgw-assume -d 15m -p myprofile            # 15-minute session duration (minimum)
-  radosgw-assume -s my-session -p myprofile     # Custom session name
-  radosgw-assume exec -- aws s3 ls              # Select profile, then run once
-  radosgw-assume exec -p myprofile -- aws s3 ls # Use specific profile, then run once
-  radosgw-assume shell                          # Select profile, then start a shell
-  radosgw-assume shell -p myprofile             # Start a shell for a specific profile
-  eval "$(radosgw-assume)"                      # Interactive export with eval
-  eval "$(radosgw-assume -p myprofile)"         # Direct profile export with eval
-  source <(radosgw-assume)                      # Interactive export with source
-  source <(radosgw-assume -p myprofile)         # Direct profile export with source
-  radosgw-assume --verbose                      # Verbose output with detailed info
+  radosgw-assume                                 # Interactive selection, clean output
+  radosgw-assume -p myprofile                    # Use specific profile, clean output
+  radosgw-assume --env                           # Use environment variables
+  radosgw-assume -d 2h -p myprofile              # 2-hour session duration
+  radosgw-assume -d 30m -p myprofile             # 30-minute session duration
+  radosgw-assume -d 15m -p myprofile             # 15-minute session duration (minimum)
+  radosgw-assume -s my-session -p myprofile      # Custom session name
+  radosgw-assume exec -- aws s3 ls               # Select profile, then run once
+  radosgw-assume exec -p myprofile -- aws s3 ls  # Use specific profile, then run once
+  radosgw-assume shell                           # Select profile, then start a shell
+  radosgw-assume shell -p myprofile              # Start a shell for a specific profile
+  radosgw-assume credential-process -p myprofile # Emit AWS credential_process JSON
+  eval "$(radosgw-assume)"                       # Interactive export with eval
+  eval "$(radosgw-assume -p myprofile)"          # Direct profile export with eval
+  source <(radosgw-assume)                       # Interactive export with source
+  source <(radosgw-assume -p myprofile)          # Direct profile export with source
+  radosgw-assume --verbose                       # Verbose output with detailed info
 
 Environment Variables (when using -e/--env):
   RADOSGW_OIDC_PROVIDER      - OIDC issuer URL (required, except for token auth)
@@ -212,6 +215,57 @@ radosgw-assume shell -p myprofile
 The command starts an interactive instance of `$SHELL` (or `/bin/sh` when `$SHELL` is unset) and leaves the parent shell unchanged. Type `exit` or press Ctrl+D to return. Bash, Zsh, POSIX SH, Ksh, and Fish prompts are marked with the active profile; Powerlevel10k receives a native prompt segment. Existing shell configuration and themes are loaded normally and are never modified on disk. Use `--no-prompt` to retain the original prompt.
 
 The inner shell receives the same temporary AWS environment as `exec`, plus `RADOSGW_ASSUME_SHELL=1`, `RADOSGW_ASSUME_PROFILE`, and `RADOSGW_ASSUME_PROMPT_LABEL` so prompts and scripts can identify it. The source OIDC token is not passed to the shell. Omit `-p` to select a profile interactively, or use `--env` for environment configuration.
+
+### Use as an AWS Process Credential Provider
+
+The `credential-process` command lets AWS CLI, AWS SDKs, IDEs, and other integrations request RadosGW credentials directly:
+
+```bash
+radosgw-assume credential-process -p assume-device
+```
+
+It writes the AWS process credential provider JSON document to stdout. When a controlling terminal is available, authentication instructions and progress are written there because AWS tooling can capture process stderr; otherwise they fall back to stderr. The command requires an explicit `-p/--profile` or `--env`; integrations must not depend on an interactive profile selector.
+
+Configure a separate AWS consumer profile. Do not add `credential_process` to the RadosGW authentication profile itself: its `role_arn` and `source_profile` keys have different meanings to AWS tooling.
+
+```ini
+# Existing RadosGW authentication profile used by radosgw-assume.
+[profile assume-device]
+source_profile = base
+endpoint_url   = https://storage.example.com
+role_arn       = arn:aws:iam:::role/examples/KeycloakExample
+
+# Separate profile used by AWS CLI, SDKs, and IDEs.
+[profile assume-device-sdk]
+credential_process = /absolute/path/to/radosgw-assume credential-process -p assume-device
+endpoint_url        = https://storage.example.com
+```
+
+Use an absolute executable path when possible. AWS configuration does not expand `~` or environment variables in `credential_process`. If the path contains spaces, surround the executable path with double quotes.
+
+Test the integration with:
+
+```bash
+AWS_PROFILE=assume-device-sdk aws s3 ls
+```
+
+AWS credential environment variables take precedence over profiles. If credentials were previously installed with `eval` or `source`, changing `AWS_PROFILE` alone will not activate `credential_process`; stale `AWS_ACCESS_KEY_ID` and `AWS_CREDENTIAL_EXPIRATION` values can instead cause an expired-credentials error. Test from a clean shell or remove the exported credentials for the command:
+
+```bash
+env \
+  -u AWS_ACCESS_KEY_ID \
+  -u AWS_SECRET_ACCESS_KEY \
+  -u AWS_SESSION_TOKEN \
+  -u AWS_SECURITY_TOKEN \
+  -u AWS_CREDENTIAL_EXPIRATION \
+  -u AWS_SESSION_EXPIRATION \
+  AWS_PROFILE=assume-device-sdk \
+  aws s3 ls
+```
+
+AWS reruns the command when credentials need refreshing and does not persistently cache external process credentials. Long-running SDK and IDE processes can reuse credentials until refresh, but repeated one-shot AWS CLI invocations may authenticate repeatedly; use `exec` or `shell` for that workflow.
+
+Browser authentication is recommended for GUI IDE integrations because it can open the provider automatically without terminal output. Device authentication works when the calling application has a controlling terminal where the verification URL and code can be displayed.
 
 ## Key Features
 

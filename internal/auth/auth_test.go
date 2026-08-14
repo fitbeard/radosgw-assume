@@ -299,7 +299,9 @@ func TestAuthFunctionsExist(t *testing.T) {
 
 	// Test that functions are callable (they exist)
 	_ = AuthenticateDeviceFlow
+	_ = AuthenticateDeviceFlowWithOutput
 	_ = AuthenticateBrowserFlow
+	_ = AuthenticateBrowserFlowWithOutput
 
 	// If we reach here, both functions exist with expected signatures
 	t.Log("Auth functions exist and have correct signatures")
