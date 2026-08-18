@@ -9,14 +9,14 @@ import (
 )
 
 const (
-	defaultAuthType = "device"
+	defaultAuthType = config.AuthTypeDevice
 	defaultScope    = "openid"
 )
 
 type resolvedCredentialConfig struct {
 	sourceConfig *config.ProfileConfig
 	roleARN      string
-	authType     string
+	authType     config.AuthType
 	scope        string
 	sslVerify    bool
 }
@@ -48,7 +48,7 @@ func resolveCredentialConfig(profileName string, profileConfig *config.ProfileCo
 		authType = defaultAuthType
 	}
 
-	if authType != "token" {
+	if authType != config.AuthTypeToken {
 		sourceProfileName := profileName
 		if profileConfig.SourceProfile != "" {
 			sourceProfileName = profileConfig.SourceProfile
@@ -71,6 +71,6 @@ func resolveCredentialConfig(profileName string, profileConfig *config.ProfileCo
 		roleARN:      profileConfig.RoleArn,
 		authType:     authType,
 		scope:        scope,
-		sslVerify:    sourceConfig.RadosGWSSLVerify != "false" && sourceConfig.RadosGWSSLVerify != "0",
+		sslVerify:    sourceConfig.RadosGWSSLVerify.Enabled(),
 	}, nil
 }

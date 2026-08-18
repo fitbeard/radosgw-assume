@@ -112,7 +112,7 @@ func TestGetCredentials_UnsupportedAuthType(t *testing.T) {
 func TestGetCredentials_SSLVerifyParsing(t *testing.T) {
 	tests := []struct {
 		name         string
-		sslVerify    string
+		sslVerify    config.SSLVerification
 		expectSecure bool
 	}{
 		{

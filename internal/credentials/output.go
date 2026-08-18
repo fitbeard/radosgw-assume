@@ -5,13 +5,14 @@ import (
 	"io"
 	"time"
 
+	"github.com/fitbeard/radosgw-assume/internal/config"
 	"github.com/fitbeard/radosgw-assume/pkg/duration"
 )
 
 func printCredentialContext(stderr io.Writer, profileName string, resolvedConfig *resolvedCredentialConfig, verboseMode bool, sessionDuration time.Duration) {
 	verbosef(stderr, verboseMode, "# Using profile: %s\n", profileName)
 	verbosef(stderr, verboseMode, "# RadosGW endpoint: %s\n", resolvedConfig.sourceConfig.EndpointURL)
-	if resolvedConfig.authType != "token" {
+	if resolvedConfig.authType != config.AuthTypeToken {
 		verbosef(stderr, verboseMode, "# OIDC provider: %s\n", resolvedConfig.sourceConfig.RadosGWOIDCProvider)
 	}
 	verbosef(stderr, verboseMode, "# Auth type: %s\n", resolvedConfig.authType)

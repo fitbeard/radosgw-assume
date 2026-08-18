@@ -6,15 +6,17 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+
+	"github.com/fitbeard/radosgw-assume/internal/config"
 )
 
 const (
 	// DefaultPKCEMethod is used when no PKCE method is configured.
-	DefaultPKCEMethod = "S256"
+	DefaultPKCEMethod = string(config.PKCEMethodS256)
 	// PKCEMethodPlain sends the verifier as the challenge.
-	PKCEMethodPlain = "plain"
+	PKCEMethodPlain = string(config.PKCEMethodPlain)
 	// PKCEMethodS256 sends the base64url-encoded SHA-256 verifier digest.
-	PKCEMethodS256 = "S256"
+	PKCEMethodS256 = string(config.PKCEMethodS256)
 )
 
 // GenerateRandomString generates a cryptographically secure random string.
