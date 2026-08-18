@@ -2,7 +2,6 @@ package sts
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 )
 
@@ -18,8 +17,12 @@ func ValidateSessionName(name string) error {
 	if strings.HasSuffix(name, "-") {
 		return fmt.Errorf("session name cannot end with a dash")
 	}
-	validPattern := regexp.MustCompile(`^[a-zA-Z0-9-]+$`)
-	if !validPattern.MatchString(name) {
+	for index := 0; index < len(name); index++ {
+		character := name[index]
+		if character == '-' || character >= 'a' && character <= 'z' ||
+			character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' {
+			continue
+		}
 		return fmt.Errorf("session name can only contain alphanumeric characters (a-z, A-Z, 0-9) and dashes (-)")
 	}
 	return nil

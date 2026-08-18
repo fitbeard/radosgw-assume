@@ -441,3 +441,13 @@ aws s3 ls
     eval "$(./radosgw-assume -e)"
     aws s3 sync ./artifacts s3://deployment-bucket/
 ```
+
+## Performance Benchmarks
+
+The CLI parser, profile discovery and inheritance, credential-cache key generation and cache-hit path, and session-name validation have network-free benchmarks. Run all of them with allocation reporting:
+
+```bash
+go test -run '^$' -bench . -benchmem ./...
+```
+
+Benchmark results depend on the host, so compare changes on the same machine and Go version.
