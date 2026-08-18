@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/fitbeard/radosgw-assume/internal/config"
 	"github.com/fitbeard/radosgw-assume/internal/credentialcache"
 	"github.com/fitbeard/radosgw-assume/internal/credentials"
@@ -22,6 +23,7 @@ type cliRunner struct {
 	stderr io.Writer
 
 	deferInteractiveExport bool
+	stdoutIsTerminal       bool
 
 	loadAWSConfig         func() (*ini.File, error)
 	loadEnvConfig         func() (*config.ProfileConfig, error)
@@ -42,6 +44,7 @@ func newCLIRunner(stdout, stderr io.Writer) *cliRunner {
 		stdout:                 stdout,
 		stderr:                 stderr,
 		deferInteractiveExport: shouldDeferInteractiveExport(stdout, processIsForeground()),
+		stdoutIsTerminal:       isTerminalOutput(stdout),
 		loadAWSConfig:          config.LoadAWSConfig,
 		loadEnvConfig:          config.GetProfileConfigFromEnv,
 		getProfiles:            config.GetRadosGWProfiles,
@@ -70,6 +73,10 @@ func (r *cliRunner) runContext(ctx context.Context, program string, args []strin
 
 	if exitCode, handled := r.runStandaloneAction(options); handled {
 		return exitCode
+	}
+	if options.action == actionRun && r.stdoutIsTerminal && !options.showCredentials {
+		fprintTerminalExportRefusal(r.stderr, program, args)
+		return 1
 	}
 	if options.action == actionRun && options.profileName == "" && !options.useEnv && r.deferInteractiveExport {
 		fprintForegroundExport(r.stdout, program, args)
@@ -104,13 +111,34 @@ func shouldDeferInteractiveExport(output io.Writer, processForeground bool) bool
 	return err == nil && fileInfo.Mode()&os.ModeNamedPipe != 0 && !processForeground
 }
 
-func fprintForegroundExport(w io.Writer, program string, args []string) {
+func isTerminalOutput(output io.Writer) bool {
+	file, ok := output.(*os.File)
+	return ok && term.IsTerminal(file.Fd())
+}
+
+func shellCommand(program string, args []string) string {
 	command := make([]string, 0, len(args)+1)
 	command = append(command, ui.ShellQuote(program))
 	for _, arg := range args {
 		command = append(command, ui.ShellQuote(arg))
 	}
-	_, _ = fmt.Fprintf(w, "eval \"$(%s=1 %s)\"\n", foregroundExportEnvironment, strings.Join(command, " "))
+	return strings.Join(command, " ")
+}
+
+func fprintForegroundExport(w io.Writer, program string, args []string) {
+	_, _ = fmt.Fprintf(w, "eval \"$(%s=1 %s)\"\n", foregroundExportEnvironment, shellCommand(program, args))
+}
+
+func fprintTerminalExportRefusal(w io.Writer, program string, args []string) {
+	command := shellCommand(program, args)
+	_, _ = fmt.Fprintln(w, "Error: refusing to print temporary credentials to a terminal")
+	_, _ = fmt.Fprintln(w, "To deliberately display them, add --show-credentials.")
+	_, _ = fmt.Fprintln(w, "Export them into the current shell with either:")
+	_, _ = fmt.Fprintf(w, "  eval \"$(%s)\"\n", command)
+	_, _ = fmt.Fprintf(w, "  source <(%s)\n", command)
+	_, _ = fmt.Fprintln(w, "Or use credentials without exporting them:")
+	_, _ = fmt.Fprintln(w, "  radosgw-assume exec [OPTIONS] -- COMMAND [ARG...]")
+	_, _ = fmt.Fprintln(w, "  radosgw-assume shell [OPTIONS]")
 }
 
 func credentialEnvironment(environment []string, result *config.AssumeRoleResult) []string {

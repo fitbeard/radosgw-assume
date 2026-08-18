@@ -58,6 +58,7 @@ func TestFprintUsageRequiresProfileFlag(t *testing.T) {
 		"cache status              Show a non-secret credential cache summary",
 		"cache clear               Remove cached temporary credentials",
 		"--no-cache            Bypass the credential-process cache",
+		"--show-credentials    Allow credential exports to be printed to a terminal",
 		"--no-prompt",
 		"radosgw-assume exec -p myprofile -- aws s3 ls",
 		"radosgw-assume shell -p myprofile",
@@ -65,9 +66,12 @@ func TestFprintUsageRequiresProfileFlag(t *testing.T) {
 		"radosgw-assume credential-process -d 12h -p myprofile",
 		"radosgw-assume cache status",
 		"radosgw-assume cache clear",
-		"radosgw-assume -p myprofile",
 		"eval \"$(radosgw-assume)\"",
+		"eval \"$(radosgw-assume -p myprofile)\"",
 		"source <(radosgw-assume)",
+		"radosgw-assume --show-credentials -p myprofile",
+		"radosgw-assume --show-credentials --env",
+		"Credential exports are refused when stdout is a terminal",
 	} {
 		if !strings.Contains(output.String(), want) {
 			t.Errorf("FprintUsage() output missing %q", want)

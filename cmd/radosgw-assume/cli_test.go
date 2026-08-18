@@ -153,11 +153,105 @@ func TestCLIRunnerInformationalActions(t *testing.T) {
 			stdout := &bytes.Buffer{}
 			stderr := &bytes.Buffer{}
 			runner := newCLIRunner(stdout, stderr)
+			runner.stdoutIsTerminal = true
 			if exitCode := runner.run("radosgw-assume", tt.args); exitCode != 0 {
 				t.Fatalf("run() exit code = %d, want 0; stderr: %s", exitCode, stderr.String())
 			}
 			if !strings.Contains(stdout.String(), tt.wantOutput) {
 				t.Errorf("run() stdout = %q, want it to contain %q", stdout.String(), tt.wantOutput)
+			}
+			if stderr.Len() != 0 {
+				t.Errorf("run() stderr = %q, want empty", stderr.String())
+			}
+		})
+	}
+}
+
+func TestCLIRunnerRejectsTerminalCredentialExport(t *testing.T) {
+	tests := []struct {
+		name        string
+		program     string
+		args        []string
+		wantCommand string
+	}{
+		{
+			name:        "interactive profile",
+			program:     "radosgw-assume",
+			wantCommand: "'radosgw-assume'",
+		},
+		{
+			name:        "named profile with options",
+			program:     "/path/radosgw assume",
+			args:        []string{"--verbose", "--profile", "profile with spaces"},
+			wantCommand: "'/path/radosgw assume' '--verbose' '--profile' 'profile with spaces'",
+		},
+		{
+			name:        "environment configuration",
+			program:     "radosgw-assume",
+			args:        []string{"--env"},
+			wantCommand: "'radosgw-assume' '--env'",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner, stdout, stderr := newTestCLIRunner(t)
+			runner.stdoutIsTerminal = true
+
+			if exitCode := runner.run(test.program, test.args); exitCode != 1 {
+				t.Errorf("run() exit code = %d, want 1", exitCode)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("run() stdout = %q, want no credential output", stdout.String())
+			}
+			for _, want := range []string{
+				"refusing to print temporary credentials to a terminal",
+				"add --show-credentials",
+				"eval \"$(" + test.wantCommand + ")\"",
+				"source <(" + test.wantCommand + ")",
+				"radosgw-assume exec [OPTIONS] -- COMMAND [ARG...]",
+				"radosgw-assume shell [OPTIONS]",
+			} {
+				if !strings.Contains(stderr.String(), want) {
+					t.Errorf("run() stderr = %q, want it to contain %q", stderr.String(), want)
+				}
+			}
+		})
+	}
+}
+
+func TestCLIRunnerAllowsExplicitTerminalEnvironmentExport(t *testing.T) {
+	tests := []struct {
+		name    string
+		envFlag string
+	}{
+		{name: "short environment flag", envFlag: "-e"},
+		{name: "long environment flag", envFlag: "--env"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner, stdout, stderr := newTestCLIRunner(t)
+			runner.stdoutIsTerminal = true
+			profileConfig := &config.ProfileConfig{}
+			runner.loadEnvConfig = func() (*config.ProfileConfig, error) {
+				return profileConfig, nil
+			}
+			runner.getCredentials = func(_ context.Context, options credentials.RequestOptions) (*config.AssumeRoleResult, error) {
+				if options.ProfileName != "env" || options.ProfileConfig != profileConfig || options.AWSConfig != nil {
+					t.Error("getCredentials() received unexpected environment configuration")
+				}
+				return testAssumeRoleResult("env"), nil
+			}
+
+			if exitCode := runner.run("radosgw-assume", []string{test.envFlag, "--show-credentials"}); exitCode != 0 {
+				t.Fatalf("run() exit code = %d, want 0; stderr: %s", exitCode, stderr.String())
+			}
+			if !strings.Contains(stdout.String(), "export AWS_ACCESS_KEY_ID='access-key'") {
+				t.Errorf("run() stdout = %q, want credential export", stdout.String())
+			}
+			if strings.Contains(stdout.String(), "AWS_PROFILE") {
+				t.Errorf("run() stdout = %q, must not export a synthetic environment profile", stdout.String())
 			}
 			if stderr.Len() != 0 {
 				t.Errorf("run() stderr = %q, want empty", stderr.String())
@@ -207,6 +301,21 @@ func TestShouldDeferInteractiveExport(t *testing.T) {
 	}
 }
 
+func TestIsTerminalOutputRejectsNonTerminalWriters(t *testing.T) {
+	if isTerminalOutput(&bytes.Buffer{}) {
+		t.Error("buffer output must not be treated as a terminal")
+	}
+
+	nullOutput, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open null output: %v", err)
+	}
+	t.Cleanup(func() { _ = nullOutput.Close() })
+	if isTerminalOutput(nullOutput) {
+		t.Error("null character device must not be treated as a terminal")
+	}
+}
+
 func TestForegroundExportCanBeSourcedFromZshProcessSubstitution(t *testing.T) {
 	exporter := filepath.Join(t.TempDir(), "radosgw-assume-test-exporter")
 	exporterScript := "#!/bin/sh\n" +
@@ -241,6 +350,7 @@ func TestForegroundExportCanBeSourcedFromZshProcessSubstitution(t *testing.T) {
 
 func TestCLIRunnerNamedProfile(t *testing.T) {
 	runner, stdout, stderr := newTestCLIRunner(t)
+	runner.stdoutIsTerminal = true
 	awsConfig := ini.Empty()
 	profileConfig := &config.ProfileConfig{RoleSessionName: "config-session"}
 
@@ -275,7 +385,7 @@ func TestCLIRunnerNamedProfile(t *testing.T) {
 		return testAssumeRoleResult("version"), nil
 	}
 
-	exitCode := runner.run("radosgw-assume", []string{"--verbose", "--duration", "2h", "--session", "cli-session", "--profile", "version"})
+	exitCode := runner.run("radosgw-assume", []string{"--show-credentials", "--verbose", "--duration", "2h", "--session", "cli-session", "--profile", "version"})
 	if exitCode != 0 {
 		t.Fatalf("run() exit code = %d, want 0; stderr: %s", exitCode, stderr.String())
 	}
@@ -355,6 +465,7 @@ func TestCLIRunnerCancellation(t *testing.T) {
 
 func TestCLIRunnerExecCommand(t *testing.T) {
 	runner, stdout, stderr := newTestCLIRunner(t)
+	runner.stdoutIsTerminal = true
 	awsConfig := ini.Empty()
 	profileConfig := &config.ProfileConfig{}
 	wantResult := testAssumeRoleResult("profile")
@@ -417,6 +528,7 @@ func TestCLIRunnerExecCommand(t *testing.T) {
 
 func TestCLIRunnerCredentialProcess(t *testing.T) {
 	runner, stdout, stderr := newTestCLIRunner(t)
+	runner.stdoutIsTerminal = true
 	awsConfig := ini.Empty()
 	profileConfig := &config.ProfileConfig{RoleSessionName: "config-session"}
 	wantResult := testAssumeRoleResult("profile")
@@ -532,6 +644,7 @@ func (testWriteCloser) Close() error {
 
 func TestCLIRunnerShell(t *testing.T) {
 	runner, stdout, stderr := newTestCLIRunner(t)
+	runner.stdoutIsTerminal = true
 	awsConfig := ini.Empty()
 	profileConfig := &config.ProfileConfig{}
 	wantResult := testAssumeRoleResult("profile")
