@@ -143,6 +143,7 @@ func TestStoreGetOrRetrieve(t *testing.T) {
 	}
 
 	assertMode(t, directory, 0o700)
+	assertMode(t, filepath.Join(directory, cacheLockName), 0o600)
 	assertMode(t, filepath.Join(directory, key+".lock"), 0o600)
 	assertMode(t, filepath.Join(directory, key+".json"), 0o600)
 }

@@ -20,6 +20,7 @@ const (
 	cacheKeyVersion = 1
 	minimumValidity = time.Minute
 	maximumValidity = 15 * time.Minute
+	cacheLockName   = ".cache.lock"
 )
 
 // Store persists temporary STS credentials in a user-private cache.
@@ -89,16 +90,24 @@ func Key(profileName string, profileConfig *config.ProfileConfig, sessionDuratio
 // New returns a credential store under the operating system's user cache
 // directory.
 func New(sessionDuration time.Duration) (*Store, error) {
-	userCacheDirectory, err := os.UserCacheDir()
+	directory, err := defaultDirectory()
 	if err != nil {
-		return nil, fmt.Errorf("find user cache directory: %w", err)
+		return nil, err
 	}
 
 	return newStore(
-		filepath.Join(userCacheDirectory, "radosgw-assume", "credentials-v1"),
+		directory,
 		time.Now,
 		refreshWindow(sessionDuration),
 	), nil
+}
+
+func defaultDirectory() (string, error) {
+	userCacheDirectory, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("find user cache directory: %w", err)
+	}
+	return filepath.Join(userCacheDirectory, "radosgw-assume", "credentials-v1"), nil
 }
 
 func newStore(directory string, now func() time.Time, validityWindow time.Duration) *Store {
@@ -128,14 +137,22 @@ func (store *Store) GetOrRetrieve(key string, retrieve func() (*config.AssumeRol
 	if err := store.ensureDirectory(); err != nil {
 		return nil, false, err
 	}
+	if err := store.prune(); err != nil {
+		return nil, false, err
+	}
+
+	cacheLock, err := store.lockCache(unix.LOCK_SH)
+	if err != nil {
+		return nil, false, err
+	}
+	defer unlockFile(cacheLock)
 
 	lockFile, err := store.lock(key)
 	if err != nil {
 		return nil, false, err
 	}
 	defer func() {
-		_ = unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
-		_ = lockFile.Close()
+		unlockFile(lockFile)
 	}()
 
 	result, found, err := store.load(key)
@@ -160,6 +177,28 @@ func (store *Store) GetOrRetrieve(key string, retrieve func() (*config.AssumeRol
 	}
 
 	return result, false, nil
+}
+
+func (store *Store) lockCache(mode int) (*os.File, error) {
+	lockPath := filepath.Join(store.directory, cacheLockName)
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open credential cache management lock: %w", err)
+	}
+	if err := os.Chmod(lockPath, 0o600); err != nil {
+		_ = lockFile.Close()
+		return nil, fmt.Errorf("secure credential cache management lock: %w", err)
+	}
+	if err := unix.Flock(int(lockFile.Fd()), mode); err != nil {
+		_ = lockFile.Close()
+		return nil, fmt.Errorf("lock credential cache: %w", err)
+	}
+	return lockFile, nil
+}
+
+func unlockFile(file *os.File) {
+	_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+	_ = file.Close()
 }
 
 func validateKey(key string) error {
@@ -218,9 +257,15 @@ func (store *Store) load(key string) (*config.AssumeRoleResult, bool, error) {
 
 	var record cacheRecord
 	if err := json.Unmarshal(encoded, &record); err != nil || record.Version != cacheVersion {
+		if removeErr := os.Remove(cachePath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return nil, false, fmt.Errorf("remove invalid credential cache entry: %w", removeErr)
+		}
 		return nil, false, nil
 	}
 	if !store.isReusable(&record.Credentials) {
+		if removeErr := os.Remove(cachePath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return nil, false, fmt.Errorf("remove stale credential cache entry: %w", removeErr)
+		}
 		return nil, false, nil
 	}
 
@@ -228,14 +273,19 @@ func (store *Store) load(key string) (*config.AssumeRoleResult, bool, error) {
 }
 
 func (store *Store) isReusable(result *config.AssumeRoleResult) bool {
-	if result.AccessKeyID == "" || result.SecretAccessKey == "" || result.SessionToken == "" {
-		return false
-	}
-	expiration, err := time.Parse(time.RFC3339, result.Expiration)
-	if err != nil {
+	expiration, valid := credentialExpiration(result)
+	if !valid {
 		return false
 	}
 	return expiration.After(store.now().Add(store.minimumValidity))
+}
+
+func credentialExpiration(result *config.AssumeRoleResult) (time.Time, bool) {
+	if result == nil || result.AccessKeyID == "" || result.SecretAccessKey == "" || result.SessionToken == "" {
+		return time.Time{}, false
+	}
+	expiration, err := time.Parse(time.RFC3339, result.Expiration)
+	return expiration, err == nil
 }
 
 func (store *Store) write(key string, result *config.AssumeRoleResult) error {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fitbeard/radosgw-assume/internal/config"
+	"github.com/fitbeard/radosgw-assume/internal/credentialcache"
 	"github.com/fitbeard/radosgw-assume/internal/credentials"
 	"github.com/fitbeard/radosgw-assume/internal/sts"
 	"github.com/fitbeard/radosgw-assume/internal/ui"
@@ -27,6 +28,8 @@ const (
 	actionExec
 	actionShell
 	actionCredentialProcess
+	actionCacheStatus
+	actionCacheClear
 )
 
 const foregroundExportEnvironment = "RADOSGW_ASSUME_FOREGROUND_EXPORT"
@@ -56,6 +59,8 @@ type cliRunner struct {
 	selectProfile         func([]string) (string, error)
 	getCredentials        func(string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error)
 	getProcessCredentials func(string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer, bool) (*config.AssumeRoleResult, error)
+	inspectCache          func() (credentialcache.Summary, error)
+	clearCache            func() (credentialcache.ClearResult, error)
 	openTerminal          func() (io.WriteCloser, error)
 	environ               func() []string
 	execCommand           func([]string, []string) error
@@ -73,6 +78,8 @@ func newCLIRunner(stdout, stderr io.Writer) *cliRunner {
 		selectProfile:          ui.SelectProfileInteractively,
 		getCredentials:         credentials.GetCredentials,
 		getProcessCredentials:  credentials.GetProcessCredentials,
+		inspectCache:           credentialcache.Inspect,
+		clearCache:             credentialcache.Clear,
 		openTerminal:           openControllingTerminal,
 		environ:                os.Environ,
 		execCommand:            replaceProcess,
@@ -92,6 +99,22 @@ func (r *cliRunner) run(program string, args []string) int {
 		return 0
 	case actionVersion:
 		version.FprintVersion(r.stdout)
+		return 0
+	case actionCacheStatus:
+		summary, err := r.inspectCache()
+		if err != nil {
+			_, _ = fmt.Fprintf(r.stderr, "Error inspecting credential cache: %v\n", err)
+			return 1
+		}
+		fprintCacheStatus(r.stdout, summary)
+		return 0
+	case actionCacheClear:
+		result, err := r.clearCache()
+		if err != nil {
+			_, _ = fmt.Fprintf(r.stderr, "Error clearing credential cache: %v\n", err)
+			return 1
+		}
+		_, _ = fmt.Fprintf(r.stdout, "Cleared %d credential cache entries from %s\n", result.Removed, result.Directory)
 		return 0
 	}
 	if options.action == actionRun && options.profileName == "" && !options.useEnv && r.deferInteractiveExport {
@@ -235,6 +258,9 @@ func fprintForegroundExport(w io.Writer, program string, args []string) {
 
 func parseCLIArguments(program string, args []string) (cliOptions, error) {
 	options := cliOptions{sessionDuration: time.Hour}
+	if len(args) > 0 && args[0] == "cache" {
+		return parseCacheArguments(program, args[1:])
+	}
 	if len(args) == 1 && args[0] == "version" {
 		options.action = actionVersion
 		return options, nil
@@ -347,6 +373,46 @@ func parseCLIArguments(program string, args []string) (cliOptions, error) {
 	}
 
 	return options, nil
+}
+
+func parseCacheArguments(program string, args []string) (cliOptions, error) {
+	options := cliOptions{sessionDuration: time.Hour}
+	if len(args) == 1 {
+		switch args[0] {
+		case "status":
+			options.action = actionCacheStatus
+			return options, nil
+		case "clear":
+			options.action = actionCacheClear
+			return options, nil
+		case "-h", "--help":
+			options.action = actionHelp
+			return options, nil
+		}
+	}
+	if len(args) == 2 && (args[1] == "-h" || args[1] == "--help") {
+		if args[0] == "status" || args[0] == "clear" {
+			options.action = actionHelp
+			return options, nil
+		}
+	}
+	if len(args) == 0 {
+		return cliOptions{}, fmt.Errorf("cache requires 'status' or 'clear'\nUsage: %s cache <status|clear>", program)
+	}
+	if args[0] != "status" && args[0] != "clear" {
+		return cliOptions{}, fmt.Errorf("unknown cache command '%s'\nUsage: %s cache <status|clear>", args[0], program)
+	}
+	return cliOptions{}, fmt.Errorf("unexpected cache argument '%s'\nUsage: %s cache %s", args[1], program, args[0])
+}
+
+func fprintCacheStatus(w io.Writer, summary credentialcache.Summary) {
+	_, _ = fmt.Fprintf(w, "Credential cache: %s\n", summary.Directory)
+	_, _ = fmt.Fprintf(w, "Entries: %d\n", summary.Total())
+	if summary.Total() > 0 {
+		_, _ = fmt.Fprintf(w, "  Valid: %d\n", summary.Valid)
+		_, _ = fmt.Fprintf(w, "  Expired: %d\n", summary.Expired)
+		_, _ = fmt.Fprintf(w, "  Invalid: %d\n", summary.Invalid)
+	}
 }
 
 func credentialEnvironment(environment []string, result *config.AssumeRoleResult) []string {
