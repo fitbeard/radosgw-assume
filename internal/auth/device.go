@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"os"
 	"time"
+
+	"github.com/fitbeard/radosgw-assume/pkg/duration"
 )
 
 type deviceFlowProgress interface {
@@ -89,6 +91,8 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 	if err != nil {
 		return "", err
 	}
+	deviceLifetime := time.Duration(deviceResponse.ExpiresIn) * time.Second
+	expiresAt := dependencies.now().Add(deviceLifetime)
 
 	// Step 2: Display user instructions
 	printDeviceAuthenticationInstructions(dependencies.stderr, deviceResponse)
@@ -100,18 +104,25 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 	tokenData.Set("device_code", deviceResponse.DeviceCode)
 	tokenData.Set("code_verifier", codeVerifier)
 
-	interval := deviceResponse.Interval
-	if interval == 0 {
-		interval = DefaultPollingInterval
+	pollInterval := time.Duration(deviceResponse.Interval) * time.Second
+	if pollInterval == 0 {
+		pollInterval = DefaultPollingInterval * time.Second
 	}
-
-	startTime := dependencies.now()
+	pollInterval = min(pollInterval, deviceLifetime)
 
 	// Progress indication
 	progress := dependencies.newProgress()
 
-	for dependencies.now().Sub(startTime) < AuthTimeout {
-		dependencies.sleep(time.Duration(interval) * time.Second)
+	for {
+		remaining := expiresAt.Sub(dependencies.now())
+		if remaining <= 0 {
+			break
+		}
+		wait := min(pollInterval, remaining)
+		dependencies.sleep(wait)
+		if !dependencies.now().Before(expiresAt) {
+			break
+		}
 
 		response, err := client.PostForm(endpoints.token, tokenData)
 		if err != nil {
@@ -148,7 +159,12 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 			case "authorization_pending":
 				continue
 			case "slow_down":
-				interval += DefaultPollingInterval
+				slowDown := DefaultPollingInterval * time.Second
+				if deviceLifetime-pollInterval < slowDown {
+					pollInterval = deviceLifetime
+				} else {
+					pollInterval += slowDown
+				}
 				continue
 			default:
 				progress.StopQuiet()
@@ -161,7 +177,7 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 	}
 
 	progress.StopQuiet()
-	return "", fmt.Errorf("authentication timeout after %v", AuthTimeout)
+	return "", fmt.Errorf("device authorization expired after %s; start authentication again", duration.Format(deviceLifetime))
 }
 
 func requestDeviceAuthorization(client *http.Client, endpoint string, data url.Values, providerURL string) (DeviceAuthResponse, error) {
@@ -186,8 +202,31 @@ func requestDeviceAuthorization(client *http.Client, endpoint string, data url.V
 	if deviceResponse.DeviceCode == "" || deviceResponse.UserCode == "" || deviceResponse.VerificationURI == "" {
 		return DeviceAuthResponse{}, fmt.Errorf("invalid device authorization response: missing required fields")
 	}
+	if _, err := deviceResponseDuration("expires_in", deviceResponse.ExpiresIn); err != nil {
+		return DeviceAuthResponse{}, err
+	}
+	if deviceResponse.Interval < 0 {
+		return DeviceAuthResponse{}, fmt.Errorf("invalid device authorization response: interval must not be negative")
+	}
+	if deviceResponse.Interval > 0 {
+		if _, err := deviceResponseDuration("interval", deviceResponse.Interval); err != nil {
+			return DeviceAuthResponse{}, err
+		}
+	}
 
 	return deviceResponse, nil
+}
+
+func deviceResponseDuration(field string, seconds int) (time.Duration, error) {
+	if seconds <= 0 {
+		return 0, fmt.Errorf("invalid device authorization response: %s must be a positive number of seconds", field)
+	}
+	value := time.Duration(seconds)
+	result := value * time.Second
+	if result <= 0 || result/time.Second != value {
+		return 0, fmt.Errorf("invalid device authorization response: %s is too large", field)
+	}
+	return result, nil
 }
 
 func printDeviceAuthenticationInstructions(stderr io.Writer, response DeviceAuthResponse) {
@@ -203,7 +242,8 @@ func printDeviceAuthenticationInstructions(stderr io.Writer, response DeviceAuth
 		_, _ = fmt.Fprintf(stderr, "#    OR use this direct link: %s\n", response.VerificationURIComplete)
 	}
 	_, _ = fmt.Fprintln(stderr, "#")
-	_, _ = fmt.Fprintln(stderr, "# ⏰ You have 60 seconds to complete authentication")
+	lifetime := time.Duration(response.ExpiresIn) * time.Second
+	_, _ = fmt.Fprintf(stderr, "# ⏰ You have %d seconds (%s) to complete authentication\n", response.ExpiresIn, duration.Format(lifetime))
 	_, _ = fmt.Fprintln(stderr, "#")
 	_, _ = fmt.Fprintln(stderr, "# Waiting for authentication...")
 }
