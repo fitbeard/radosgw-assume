@@ -57,6 +57,9 @@ func getProfileConfigForResolution(profileName string, awsConfig *ini.File) (*Pr
 	if err := section.MapTo(profileConfig); err != nil {
 		return nil, fmt.Errorf("failed to parse profile '%s': %w", profileName, err)
 	}
+	if err := profileConfig.ValidateValues(); err != nil {
+		return nil, fmt.Errorf("profile '%s': %w", profileName, err)
+	}
 	return profileConfig, nil
 }
 

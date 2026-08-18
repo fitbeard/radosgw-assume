@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"gopkg.in/ini.v1"
@@ -142,6 +143,33 @@ radosgw_oidc_provider = https://default-oidc.example.com
 
 			if profileConfig.EndpointURL != test.wantURL {
 				t.Errorf("GetProfileConfig() endpoint = %v, want %v", profileConfig.EndpointURL, test.wantURL)
+			}
+		})
+	}
+}
+
+func TestGetProfileConfigRejectsInvalidValues(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		setting     string
+		wantContain string
+	}{
+		{name: "auth type", setting: "radosgw_oidc_auth_type = password", wantContain: "radosgw_oidc_auth_type"},
+		{name: "PKCE method", setting: "radosgw_oidc_pkce_method = s256", wantContain: "radosgw_oidc_pkce_method"},
+		{name: "SSL verification", setting: "radosgw_ssl_verify = yes", wantContain: "radosgw_ssl_verify"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			awsConfig, err := ini.Load([]byte("[profile invalid]\nendpoint_url = https://storage.example.com\n" + test.setting + "\n"))
+			if err != nil {
+				t.Fatalf("ini.Load() error = %v", err)
+			}
+
+			profile, err := GetProfileConfig("invalid", awsConfig)
+			if err == nil || !strings.Contains(err.Error(), test.wantContain) || !strings.Contains(err.Error(), "profile 'invalid'") {
+				t.Errorf("GetProfileConfig() error = %v, want profile-specific error containing %q", err, test.wantContain)
+			}
+			if profile != nil {
+				t.Errorf("GetProfileConfig() = %#v, want nil", profile)
 			}
 		})
 	}

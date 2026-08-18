@@ -82,6 +82,27 @@ func TestKeyUsesTokenIdentityOnlyForTokenAuthentication(t *testing.T) {
 	}
 }
 
+func TestKeyNormalizesEquivalentDefaults(t *testing.T) {
+	implicit := testProfileConfig()
+	implicit.RadosGWOIDCAuthType = ""
+	implicit.RadosGWOIDCScope = ""
+	implicit.RadosGWOIDCPKCEMethod = ""
+	implicit.RadosGWSSLVerify = ""
+
+	explicit := testProfileConfig()
+	implicitKey, err := Key("profile", implicit, time.Hour, "")
+	if err != nil {
+		t.Fatalf("Key() implicit defaults error = %v", err)
+	}
+	explicitKey, err := Key("profile", explicit, time.Hour, "")
+	if err != nil {
+		t.Fatalf("Key() explicit defaults error = %v", err)
+	}
+	if implicitKey != explicitKey {
+		t.Errorf("semantically equivalent default keys differ: %q != %q", implicitKey, explicitKey)
+	}
+}
+
 func TestKeyRejectsMissingConfiguration(t *testing.T) {
 	if _, err := Key("profile", nil, time.Hour, ""); err == nil {
 		t.Fatal("Key() expected an error")
