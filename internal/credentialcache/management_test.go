@@ -2,7 +2,6 @@ package credentialcache
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -200,8 +199,4 @@ func TestStoreManagementRejectsNonDirectoryPath(t *testing.T) {
 	if _, err := store.clear(); err == nil {
 		t.Error("clear() expected a non-directory error")
 	}
-}
-
-func numberedKey(number int) string {
-	return fmt.Sprintf("%064x", number)
 }
