@@ -1,0 +1,325 @@
+package credentials
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/fitbeard/radosgw-assume/internal/config"
+
+	"gopkg.in/ini.v1"
+)
+
+func TestGetCredentials_AuthFlows(t *testing.T) {
+	tests := []struct {
+		name               string
+		authType           string
+		resolvedAuthType   string
+		wantVerboseMessage string
+	}{
+		{
+			name:               "default device flow",
+			resolvedAuthType:   "device",
+			wantVerboseMessage: "# Starting device authentication flow",
+		},
+		{
+			name:               "browser flow",
+			authType:           "browser",
+			resolvedAuthType:   "browser",
+			wantVerboseMessage: "# Starting browser authentication flow",
+		},
+		{
+			name:               "token flow",
+			authType:           "token",
+			resolvedAuthType:   "token",
+			wantVerboseMessage: "# Using pre-existing OIDC token",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stderr := &bytes.Buffer{}
+			dependencies := newTestCredentialDependencies(t, stderr)
+			expectedAccessToken := test.resolvedAuthType + "-token"
+			profileConfig := &config.ProfileConfig{
+				EndpointURL:           "https://storage.example.com",
+				RoleArn:               "arn:aws:iam::123456789012:role/TestRole",
+				RadosGWOIDCProvider:   "https://oidc.example.com",
+				RadosGWOIDCClientID:   "test-client",
+				RadosGWOIDCAuthType:   test.authType,
+				RadosGWOIDCScope:      "openid groups",
+				RadosGWOIDCPKCEMethod: "plain",
+				RadosGWSSLVerify:      "false",
+			}
+
+			switch test.resolvedAuthType {
+			case "device":
+				dependencies.authenticateDevice = func(_ context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
+					assertAuthenticationArguments(t, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode)
+					return "device-token", nil
+				}
+			case "browser":
+				dependencies.authenticateBrowser = func(_ context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
+					assertAuthenticationArguments(t, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode)
+					return "browser-token", nil
+				}
+			case "token":
+				expectedAccessToken = "environment-token"
+				dependencies.getenv = func(name string) string {
+					if name != "RADOSGW_OIDC_TOKEN" {
+						t.Errorf("getenv() name = %q, want RADOSGW_OIDC_TOKEN", name)
+					}
+					return "environment-token"
+				}
+			}
+
+			dependencies.assumeRole = func(_ context.Context, endpointURL, roleARN, accessToken, sessionName string, sslVerify bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
+				if endpointURL != profileConfig.EndpointURL {
+					t.Errorf("assumeRole() endpoint = %q, want %q", endpointURL, profileConfig.EndpointURL)
+				}
+				if roleARN != profileConfig.RoleArn {
+					t.Errorf("assumeRole() role ARN = %q, want %q", roleARN, profileConfig.RoleArn)
+				}
+				if accessToken != expectedAccessToken {
+					t.Errorf("assumeRole() access token = %q, want %q", accessToken, expectedAccessToken)
+				}
+				if sessionName != "radosgw-assume-20300102T030405Z" {
+					t.Errorf("assumeRole() session name = %q, want deterministic default", sessionName)
+				}
+				if sslVerify {
+					t.Error("assumeRole() SSL verification = true, want false")
+				}
+				if sessionDuration != 2*time.Hour {
+					t.Errorf("assumeRole() duration = %v, want 2h", sessionDuration)
+				}
+				return &config.AssumeRoleResult{
+					AssumedRoleArn: "arn:aws:sts::123456789012:assumed-role/TestRole/test-session",
+					EndpointURL:    endpointURL,
+				}, nil
+			}
+
+			result, err := getCredentials(t.Context(), "test-profile", profileConfig, ini.Empty(), true, 2*time.Hour, dependencies)
+			if err != nil {
+				t.Fatalf("getCredentials() error = %v", err)
+			}
+			if result.ProfileName != "test-profile" {
+				t.Errorf("ProfileName = %q, want test-profile", result.ProfileName)
+			}
+
+			verboseOutput := stderr.String()
+			for _, expected := range []string{
+				"# Direct role assumption: " + profileConfig.RoleArn,
+				"# Using profile: test-profile",
+				"# Auth type: " + test.resolvedAuthType,
+				test.wantVerboseMessage,
+				"# Session duration: 7200 seconds (2h)",
+				"# Assumed role ARN:",
+			} {
+				if !strings.Contains(verboseOutput, expected) {
+					t.Errorf("verbose output %q does not contain %q", verboseOutput, expected)
+				}
+			}
+			if test.resolvedAuthType == "token" && strings.Contains(verboseOutput, "# OIDC provider:") {
+				t.Errorf("token verbose output unexpectedly contains OIDC provider: %q", verboseOutput)
+			}
+		})
+	}
+}
+
+func TestGetCredentials_SourceProfile(t *testing.T) {
+	stderr := &bytes.Buffer{}
+	dependencies := newTestCredentialDependencies(t, stderr)
+	awsConfig := ini.Empty()
+	profileConfig := &config.ProfileConfig{
+		RoleArn:         "arn:aws:iam::123456789012:role/DerivedRole",
+		RoleSessionName: "custom-session",
+		SourceProfile:   "base",
+	}
+	sourceConfig := &config.ProfileConfig{
+		EndpointURL:         "https://storage.example.com",
+		RadosGWOIDCAuthType: "token",
+	}
+
+	dependencies.resolveSourceProfile = func(gotProfile *config.ProfileConfig, gotConfig *ini.File, verboseMode bool) (*config.ProfileConfig, error) {
+		if gotProfile != profileConfig || gotConfig != awsConfig || !verboseMode {
+			t.Error("resolveSourceProfile() received unexpected arguments")
+		}
+		return sourceConfig, nil
+	}
+	dependencies.getenv = func(string) string { return "test-token" }
+	dependencies.now = func() time.Time {
+		t.Fatal("now() must not be called when a custom session name is configured")
+		return time.Time{}
+	}
+	dependencies.assumeRole = func(_ context.Context, endpointURL, roleARN, accessToken, sessionName string, sslVerify bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
+		if endpointURL != sourceConfig.EndpointURL || roleARN != profileConfig.RoleArn || accessToken != "test-token" {
+			t.Error("assumeRole() received unexpected role parameters")
+		}
+		if sessionName != profileConfig.RoleSessionName {
+			t.Errorf("assumeRole() session name = %q, want %q", sessionName, profileConfig.RoleSessionName)
+		}
+		if !sslVerify || sessionDuration != time.Hour {
+			t.Error("assumeRole() received unexpected transport or duration settings")
+		}
+		return &config.AssumeRoleResult{}, nil
+	}
+
+	result, err := getCredentials(t.Context(), "derived", profileConfig, awsConfig, true, time.Hour, dependencies)
+	if err != nil {
+		t.Fatalf("getCredentials() error = %v", err)
+	}
+	if result.ProfileName != "derived" {
+		t.Errorf("ProfileName = %q, want derived", result.ProfileName)
+	}
+	for _, expected := range []string{
+		"# Role assumption: " + profileConfig.RoleArn,
+		"# Source profile: base",
+		"# Session name: custom-session",
+	} {
+		if !strings.Contains(stderr.String(), expected) {
+			t.Errorf("verbose output %q does not contain %q", stderr.String(), expected)
+		}
+	}
+}
+
+func TestGetCredentials_DependencyErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		authType    string
+		configure   func(*credentialDependencies)
+		wantMessage string
+	}{
+		{
+			name:     "missing token",
+			authType: "token",
+			configure: func(dependencies *credentialDependencies) {
+				dependencies.getenv = func(string) string { return "" }
+			},
+			wantMessage: "RADOSGW_OIDC_TOKEN",
+		},
+		{
+			name:     "device authentication",
+			authType: "device",
+			configure: func(dependencies *credentialDependencies) {
+				dependencies.authenticateDevice = func(context.Context, string, string, string, string, bool, bool) (string, error) {
+					return "", errors.New("device failure")
+				}
+			},
+			wantMessage: "device authentication failed: device failure",
+		},
+		{
+			name:     "browser authentication",
+			authType: "browser",
+			configure: func(dependencies *credentialDependencies) {
+				dependencies.authenticateBrowser = func(context.Context, string, string, string, string, bool, bool) (string, error) {
+					return "", errors.New("browser failure")
+				}
+			},
+			wantMessage: "browser authentication failed: browser failure",
+		},
+		{
+			name:     "role assumption",
+			authType: "token",
+			configure: func(dependencies *credentialDependencies) {
+				dependencies.getenv = func(string) string { return "test-token" }
+				dependencies.assumeRole = func(context.Context, string, string, string, string, bool, time.Duration) (*config.AssumeRoleResult, error) {
+					return nil, errors.New("STS failure")
+				}
+			},
+			wantMessage: "STS failure",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dependencies := newTestCredentialDependencies(t, &bytes.Buffer{})
+			profileConfig := &config.ProfileConfig{
+				EndpointURL:         "https://storage.example.com",
+				RoleArn:             "arn:aws:iam::123456789012:role/TestRole",
+				RadosGWOIDCProvider: "https://oidc.example.com",
+				RadosGWOIDCClientID: "test-client",
+				RadosGWOIDCAuthType: test.authType,
+			}
+			test.configure(&dependencies)
+
+			_, err := getCredentials(t.Context(), "test-profile", profileConfig, ini.Empty(), false, time.Hour, dependencies)
+			if err == nil {
+				t.Fatal("getCredentials() expected an error")
+			}
+			if !strings.Contains(err.Error(), test.wantMessage) {
+				t.Errorf("getCredentials() error = %q, want it to contain %q", err, test.wantMessage)
+			}
+		})
+	}
+}
+
+func TestGetCredentials_SourceProfileError(t *testing.T) {
+	dependencies := newTestCredentialDependencies(t, &bytes.Buffer{})
+	dependencies.resolveSourceProfile = func(*config.ProfileConfig, *ini.File, bool) (*config.ProfileConfig, error) {
+		return nil, errors.New("source profile failure")
+	}
+	profileConfig := &config.ProfileConfig{
+		RoleArn:       "arn:aws:iam::123456789012:role/TestRole",
+		SourceProfile: "base",
+	}
+
+	_, err := getCredentials(t.Context(), "derived", profileConfig, ini.Empty(), false, time.Hour, dependencies)
+	if err == nil || !strings.Contains(err.Error(), "source profile failure") {
+		t.Errorf("getCredentials() error = %v, want source profile failure", err)
+	}
+}
+
+func newTestCredentialDependencies(t *testing.T, stderr *bytes.Buffer) credentialDependencies {
+	t.Helper()
+	return credentialDependencies{
+		stderr: stderr,
+		getenv: func(string) string {
+			t.Fatal("unexpected getenv() call")
+			return ""
+		},
+		now: func() time.Time {
+			return time.Date(2030, time.January, 2, 3, 4, 5, 0, time.UTC)
+		},
+		resolveSourceProfile: func(*config.ProfileConfig, *ini.File, bool) (*config.ProfileConfig, error) {
+			t.Fatal("unexpected resolveSourceProfile() call")
+			return nil, nil
+		},
+		authenticateDevice: func(context.Context, string, string, string, string, bool, bool) (string, error) {
+			t.Fatal("unexpected authenticateDevice() call")
+			return "", nil
+		},
+		authenticateBrowser: func(context.Context, string, string, string, string, bool, bool) (string, error) {
+			t.Fatal("unexpected authenticateBrowser() call")
+			return "", nil
+		},
+		assumeRole: func(context.Context, string, string, string, string, bool, time.Duration) (*config.AssumeRoleResult, error) {
+			t.Fatal("unexpected assumeRole() call")
+			return nil, nil
+		},
+	}
+}
+
+func assertAuthenticationArguments(t *testing.T, providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) {
+	t.Helper()
+	if providerURL != "https://oidc.example.com" {
+		t.Errorf("authenticate() provider URL = %q", providerURL)
+	}
+	if clientID != "test-client" {
+		t.Errorf("authenticate() client ID = %q", clientID)
+	}
+	if scope != "openid groups" {
+		t.Errorf("authenticate() scope = %q", scope)
+	}
+	if pkceMethod != "plain" {
+		t.Errorf("authenticate() PKCE method = %q", pkceMethod)
+	}
+	if sslVerify {
+		t.Error("authenticate() SSL verification = true, want false")
+	}
+	if !verboseMode {
+		t.Error("authenticate() verbose mode = false, want true")
+	}
+}
