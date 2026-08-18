@@ -146,15 +146,15 @@ func TestAuthenticateBrowserFlow(t *testing.T) {
 	}
 	dependencies.discoverEndpoints = discoverOIDCEndpoints
 
-	token, err := authenticateBrowserFlow(
+	token, err := authenticateBrowserFlow(t.Context(),
 		tokenServer.URL+"/",
 		"test-client",
 		"openid profile",
 		PKCEMethodS256,
 		true,
 		true,
-		dependencies,
-	)
+		dependencies)
+
 	if err != nil {
 		t.Fatalf("authenticateBrowserFlow() error = %v", err)
 	}
@@ -182,15 +182,15 @@ func TestAuthenticateBrowserFlowBrowserFallback(t *testing.T) {
 	}
 	dependencies.openBrowser = func(string) error { return errors.New("browser unavailable") }
 
-	token, err := authenticateBrowserFlow(
+	token, err := authenticateBrowserFlow(t.Context(),
 		"https://oidc.example.com",
 		"test-client",
 		"openid",
 		PKCEMethodPlain,
 		true,
 		true,
-		dependencies,
-	)
+		dependencies)
+
 	if err != nil {
 		t.Fatalf("authenticateBrowserFlow() error = %v", err)
 	}
@@ -236,7 +236,7 @@ func TestAuthenticateBrowserFlowErrors(t *testing.T) {
 		{
 			name: "OIDC discovery",
 			configure: func(dependencies *browserFlowDependencies) {
-				dependencies.discoverEndpoints = func(*http.Client, string) (oidcEndpoints, error) {
+				dependencies.discoverEndpoints = func(context.Context, *http.Client, string) (oidcEndpoints, error) {
 					return oidcEndpoints{}, errors.New("discovery failed")
 				}
 			},
@@ -245,7 +245,7 @@ func TestAuthenticateBrowserFlowErrors(t *testing.T) {
 		{
 			name: "missing browser endpoint",
 			configure: func(dependencies *browserFlowDependencies) {
-				dependencies.discoverEndpoints = func(*http.Client, string) (oidcEndpoints, error) {
+				dependencies.discoverEndpoints = func(context.Context, *http.Client, string) (oidcEndpoints, error) {
 					return oidcEndpoints{token: "https://oidc.example.com/token"}, nil
 				}
 			},
@@ -345,15 +345,15 @@ func TestAuthenticateBrowserFlowErrors(t *testing.T) {
 			dependencies := newTestBrowserFlowDependencies(io.Discard)
 			test.configure(&dependencies)
 
-			_, err := authenticateBrowserFlow(
+			_, err := authenticateBrowserFlow(t.Context(),
 				"https://oidc.example.com",
 				"test-client",
 				"openid",
 				PKCEMethodS256,
 				true,
 				false,
-				dependencies,
-			)
+				dependencies)
+
 			if err == nil || !strings.Contains(err.Error(), test.wantContain) {
 				t.Errorf("authenticateBrowserFlow() error = %v, want containing %q", err, test.wantContain)
 			}
@@ -395,15 +395,14 @@ func TestAuthenticateBrowserFlowStopsWaitResources(t *testing.T) {
 			dependencies.newProgress = func() browserFlowProgress { return progress }
 			test.configure(&dependencies)
 
-			_, _ = authenticateBrowserFlow(
+			_, _ = authenticateBrowserFlow(t.Context(),
 				"https://oidc.example.com",
 				"test-client",
 				"openid",
 				PKCEMethodS256,
 				true,
 				false,
-				dependencies,
-			)
+				dependencies)
 
 			if !timer.stopped {
 				t.Error("authentication timer was not stopped")
@@ -415,6 +414,37 @@ func TestAuthenticateBrowserFlowStopsWaitResources(t *testing.T) {
 				t.Errorf("progress stopped quietly = %v, want %v", progress.stoppedQuiet, test.wantQuietStop)
 			}
 		})
+	}
+}
+
+func TestAuthenticateBrowserFlowCancelsCallbackWait(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	progress := &testBrowserFlowProgress{}
+	dependencies := newTestBrowserFlowDependencies(io.Discard)
+	dependencies.startCallbackServer = func(chan<- browserCallbackResult) (*browserCallbackServer, error) {
+		return newTestBrowserCallbackServer(CallbackPort), nil
+	}
+	dependencies.openBrowser = func(string) error {
+		cancel()
+		return nil
+	}
+	dependencies.newProgress = func() browserFlowProgress { return progress }
+
+	_, err := authenticateBrowserFlow(
+		ctx,
+		"https://oidc.example.com",
+		"test-client",
+		"openid",
+		PKCEMethodS256,
+		true,
+		false,
+		dependencies,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("authenticateBrowserFlow() error = %v, want context cancellation", err)
+	}
+	if !progress.stoppedQuiet {
+		t.Error("authentication progress was not stopped quietly after cancellation")
 	}
 }
 
@@ -479,12 +509,12 @@ func TestExchangeBrowserAuthorizationCode(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			token, err := exchangeBrowserAuthorizationCode(
+			token, err := exchangeBrowserAuthorizationCode(t.Context(),
 				newBrowserTokenClient(test.status, test.body, test.transport),
 				"https://oidc.example.com/token",
 				tokenData,
-				"https://oidc.example.com",
-			)
+				"https://oidc.example.com")
+
 			if token != test.wantToken {
 				t.Errorf("token = %q, want %q", token, test.wantToken)
 			}
@@ -508,12 +538,12 @@ func TestExchangeBrowserAuthorizationCodeClosesResponseBody(t *testing.T) {
 		}, nil
 	})}
 
-	_, err := exchangeBrowserAuthorizationCode(
+	_, err := exchangeBrowserAuthorizationCode(t.Context(),
 		client,
 		"https://oidc.example.com/token",
 		url.Values{},
-		"https://oidc.example.com",
-	)
+		"https://oidc.example.com")
+
 	if err != nil {
 		t.Fatalf("exchangeBrowserAuthorizationCode() error = %v", err)
 	}
@@ -539,7 +569,7 @@ func newTestBrowserFlowDependencies(stderr io.Writer) browserFlowDependencies {
 		newHTTPClient: func(bool) *http.Client {
 			return newBrowserTokenClient(http.StatusOK, `{"access_token":"test-access-token"}`, nil)
 		},
-		discoverEndpoints: func(*http.Client, string) (oidcEndpoints, error) {
+		discoverEndpoints: func(context.Context, *http.Client, string) (oidcEndpoints, error) {
 			return oidcEndpoints{
 				authorization: "https://oidc.example.com/authorize",
 				token:         "https://oidc.example.com/token",

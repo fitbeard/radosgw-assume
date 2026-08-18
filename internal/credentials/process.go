@@ -1,6 +1,7 @@
 package credentials
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -20,7 +21,7 @@ type processCredentialDependencies struct {
 	resolveSourceProfile func(*config.ProfileConfig, *ini.File, bool) (*config.ProfileConfig, error)
 	getenv               func(string) string
 	newCache             func(time.Duration) (processCredentialCache, error)
-	getCredentials       func(string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer) (*config.AssumeRoleResult, error)
+	getCredentials       func(context.Context, string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer) (*config.AssumeRoleResult, error)
 }
 
 func newProcessCredentialDependencies() processCredentialDependencies {
@@ -36,8 +37,9 @@ func newProcessCredentialDependencies() processCredentialDependencies {
 
 // GetProcessCredentials obtains credentials for the AWS process provider,
 // reusing securely cached STS credentials unless caching is disabled.
-func GetProcessCredentials(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration, output io.Writer, noCache bool) (*config.AssumeRoleResult, error) {
+func GetProcessCredentials(ctx context.Context, profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration, output io.Writer, noCache bool) (*config.AssumeRoleResult, error) {
 	return getProcessCredentials(
+		ctx,
 		profileName,
 		profileConfig,
 		awsConfig,
@@ -49,9 +51,12 @@ func GetProcessCredentials(profileName string, profileConfig *config.ProfileConf
 	)
 }
 
-func getProcessCredentials(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration, output io.Writer, noCache bool, dependencies processCredentialDependencies) (*config.AssumeRoleResult, error) {
+func getProcessCredentials(ctx context.Context, profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration, output io.Writer, noCache bool, dependencies processCredentialDependencies) (*config.AssumeRoleResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	retrieve := func() (*config.AssumeRoleResult, error) {
-		return dependencies.getCredentials(profileName, profileConfig, awsConfig, verboseMode, sessionDuration, output)
+		return dependencies.getCredentials(ctx, profileName, profileConfig, awsConfig, verboseMode, sessionDuration, output)
 	}
 	if noCache {
 		result, err := retrieve()

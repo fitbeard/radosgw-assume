@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -50,7 +51,7 @@ func TestDiscoverOIDCEndpoints(t *testing.T) {
 		}, nil
 	})}
 
-	endpoints, err := discoverOIDCEndpoints(client, issuer+"///")
+	endpoints, err := discoverOIDCEndpoints(t.Context(), client, issuer+"///")
 	if err != nil {
 		t.Fatalf("discoverOIDCEndpoints() error = %v", err)
 	}
@@ -62,6 +63,16 @@ func TestDiscoverOIDCEndpoints(t *testing.T) {
 	}
 	if endpoints.token != issuer+"/v1/token" {
 		t.Errorf("token endpoint = %q", endpoints.token)
+	}
+}
+
+func TestDiscoverOIDCEndpointsHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	_, err := discoverOIDCEndpoints(ctx, &http.Client{}, "https://oidc.example.com")
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("discoverOIDCEndpoints() error = %v, want context cancellation", err)
 	}
 }
 
@@ -167,7 +178,7 @@ func TestDiscoverOIDCEndpointsErrors(t *testing.T) {
 				}, nil
 			})}
 
-			_, err := discoverOIDCEndpoints(client, test.providerURL)
+			_, err := discoverOIDCEndpoints(t.Context(), client, test.providerURL)
 			if err == nil || !strings.Contains(err.Error(), test.wantContain) {
 				t.Errorf("discoverOIDCEndpoints() error = %v, want containing %q", err, test.wantContain)
 			}

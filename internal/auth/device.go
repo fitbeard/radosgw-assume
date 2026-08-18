@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,9 +23,9 @@ type deviceFlowDependencies struct {
 
 	generatePKCE      func(string) (string, string, string, error)
 	newHTTPClient     func(bool) *http.Client
-	discoverEndpoints func(*http.Client, string) (oidcEndpoints, error)
+	discoverEndpoints func(context.Context, *http.Client, string) (oidcEndpoints, error)
 	now               func() time.Time
-	sleep             func(time.Duration)
+	sleep             func(context.Context, time.Duration) error
 	newProgress       func() deviceFlowProgress
 }
 
@@ -35,23 +36,24 @@ func newDeviceFlowDependencies() deviceFlowDependencies {
 		newHTTPClient:     NewHTTPClient,
 		discoverEndpoints: discoverOIDCEndpoints,
 		now:               time.Now,
-		sleep:             time.Sleep,
+		sleep:             sleepWithContext,
 		newProgress:       func() deviceFlowProgress { return NewProgressIndicator() },
 	}
 }
 
 // AuthenticateDeviceFlow performs OIDC device flow authentication with PKCE.
-func AuthenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool) (string, error) {
-	return AuthenticateDeviceFlowWithOutput(providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode, os.Stderr)
+func AuthenticateDeviceFlow(ctx context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool) (string, error) {
+	return AuthenticateDeviceFlowWithOutput(ctx, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode, os.Stderr)
 }
 
 // AuthenticateDeviceFlowWithOutput performs OIDC device flow authentication
 // and writes user interaction to output.
-func AuthenticateDeviceFlowWithOutput(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, output io.Writer) (string, error) {
+func AuthenticateDeviceFlowWithOutput(ctx context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, output io.Writer) (string, error) {
 	dependencies := newDeviceFlowDependencies()
 	dependencies.stderr = output
 	dependencies.newProgress = func() deviceFlowProgress { return newProgressIndicatorWithOutput(output) }
 	return authenticateDeviceFlow(
+		ctx,
 		providerURL,
 		clientID,
 		scope,
@@ -62,13 +64,16 @@ func AuthenticateDeviceFlowWithOutput(providerURL, clientID, scope, pkceMethod s
 	)
 }
 
-func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, dependencies deviceFlowDependencies) (string, error) {
+func authenticateDeviceFlow(ctx context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, dependencies deviceFlowDependencies) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	codeVerifier, codeChallenge, resolvedPKCEMethod, err := dependencies.generatePKCE(pkceMethod)
 	if err != nil {
 		return "", err
 	}
 	client := dependencies.newHTTPClient(sslVerify)
-	endpoints, err := dependencies.discoverEndpoints(client, providerURL)
+	endpoints, err := dependencies.discoverEndpoints(ctx, client, providerURL)
 	if err != nil {
 		return "", err
 	}
@@ -87,7 +92,7 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 	data.Set("code_challenge", codeChallenge)
 	data.Set("code_challenge_method", resolvedPKCEMethod)
 
-	deviceResponse, err := requestDeviceAuthorization(client, endpoints.deviceAuthorization, data, providerURL)
+	deviceResponse, err := requestDeviceAuthorization(ctx, client, endpoints.deviceAuthorization, data, providerURL)
 	if err != nil {
 		return "", err
 	}
@@ -119,12 +124,15 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 			break
 		}
 		wait := min(pollInterval, remaining)
-		dependencies.sleep(wait)
+		if err := dependencies.sleep(ctx, wait); err != nil {
+			progress.StopQuiet()
+			return "", err
+		}
 		if !dependencies.now().Before(expiresAt) {
 			break
 		}
 
-		response, err := client.PostForm(endpoints.token, tokenData)
+		response, err := postOIDCForm(ctx, client, endpoints.token, tokenData)
 		if err != nil {
 			progress.StopQuiet()
 			return "", fmt.Errorf("token request failed: %w", err)
@@ -180,8 +188,8 @@ func authenticateDeviceFlow(providerURL, clientID, scope, pkceMethod string, ssl
 	return "", fmt.Errorf("device authorization expired after %s; start authentication again", duration.Format(deviceLifetime))
 }
 
-func requestDeviceAuthorization(client *http.Client, endpoint string, data url.Values, providerURL string) (DeviceAuthResponse, error) {
-	response, err := client.PostForm(endpoint, data)
+func requestDeviceAuthorization(ctx context.Context, client *http.Client, endpoint string, data url.Values, providerURL string) (DeviceAuthResponse, error) {
+	response, err := postOIDCForm(ctx, client, endpoint, data)
 	if err != nil {
 		return DeviceAuthResponse{}, fmt.Errorf("device authorization request failed: %w", err)
 	}
@@ -215,6 +223,18 @@ func requestDeviceAuthorization(client *http.Client, endpoint string, data url.V
 	}
 
 	return deviceResponse, nil
+}
+
+func sleepWithContext(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func deviceResponseDuration(field string, seconds int) (time.Duration, error) {

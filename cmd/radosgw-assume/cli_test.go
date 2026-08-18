@@ -255,7 +255,7 @@ func TestCLIRunnerNamedProfile(t *testing.T) {
 		}
 		return profileConfig, nil
 	}
-	runner.getCredentials = func(profileName string, gotProfile *config.ProfileConfig, gotConfig *ini.File, verbose bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
+	runner.getCredentials = func(_ context.Context, profileName string, gotProfile *config.ProfileConfig, gotConfig *ini.File, verbose bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
 		if profileName != "version" {
 			t.Errorf("getCredentials() profile = %q, want version", profileName)
 		}
@@ -294,7 +294,7 @@ func TestCLIRunnerEnvironmentConfiguration(t *testing.T) {
 	runner.loadEnvConfig = func() (*config.ProfileConfig, error) {
 		return profileConfig, nil
 	}
-	runner.getCredentials = func(profileName string, gotProfile *config.ProfileConfig, awsConfig *ini.File, verbose bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
+	runner.getCredentials = func(_ context.Context, profileName string, gotProfile *config.ProfileConfig, awsConfig *ini.File, verbose bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
 		if profileName != "env" || gotProfile != profileConfig || awsConfig != nil {
 			t.Error("getCredentials() received unexpected environment configuration")
 		}
@@ -328,6 +328,30 @@ func TestCLIRunnerEnvironmentConfiguration(t *testing.T) {
 	}
 }
 
+func TestCLIRunnerCancellation(t *testing.T) {
+	runner, stdout, stderr := newTestCLIRunner(t)
+	awsConfig := ini.Empty()
+	profileConfig := &config.ProfileConfig{}
+	runner.loadAWSConfig = func() (*ini.File, error) { return awsConfig, nil }
+	runner.getProfile = func(string, *ini.File) (*config.ProfileConfig, error) { return profileConfig, nil }
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	runner.getCredentials = func(gotContext context.Context, _ string, _ *config.ProfileConfig, _ *ini.File, _ bool, _ time.Duration) (*config.AssumeRoleResult, error) {
+		if gotContext != ctx {
+			t.Error("getCredentials() did not receive the caller context")
+		}
+		return nil, gotContext.Err()
+	}
+
+	if exitCode := runner.runContext(ctx, "radosgw-assume", []string{"--profile", "profile"}); exitCode != 130 {
+		t.Errorf("runContext() exit code = %d, want 130", exitCode)
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Errorf("cancellation output = (stdout %q, stderr %q), want no output", stdout.String(), stderr.String())
+	}
+}
+
 func TestCLIRunnerExecCommand(t *testing.T) {
 	runner, stdout, stderr := newTestCLIRunner(t)
 	awsConfig := ini.Empty()
@@ -349,7 +373,7 @@ func TestCLIRunnerExecCommand(t *testing.T) {
 		}
 		return profileConfig, nil
 	}
-	runner.getCredentials = func(profileName string, gotProfile *config.ProfileConfig, gotConfig *ini.File, verbose bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
+	runner.getCredentials = func(_ context.Context, profileName string, gotProfile *config.ProfileConfig, gotConfig *ini.File, verbose bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
 		if profileName != "profile" || gotProfile != profileConfig || gotConfig != awsConfig {
 			t.Error("getCredentials() received unexpected configuration")
 		}
@@ -408,7 +432,7 @@ func TestCLIRunnerCredentialProcess(t *testing.T) {
 		}
 		return profileConfig, nil
 	}
-	runner.getProcessCredentials = func(profileName string, gotProfile *config.ProfileConfig, gotConfig *ini.File, verbose bool, sessionDuration time.Duration, output io.Writer, noCache bool) (*config.AssumeRoleResult, error) {
+	runner.getProcessCredentials = func(_ context.Context, profileName string, gotProfile *config.ProfileConfig, gotConfig *ini.File, verbose bool, sessionDuration time.Duration, output io.Writer, noCache bool) (*config.AssumeRoleResult, error) {
 		if profileName != "profile" || gotProfile != profileConfig || gotConfig != awsConfig {
 			t.Error("getProcessCredentials() received unexpected configuration")
 		}
@@ -474,7 +498,7 @@ func TestCLIRunnerCredentialProcessFallsBackToStderr(t *testing.T) {
 	runner.openTerminal = func() (io.WriteCloser, error) {
 		return nil, errors.New("no controlling terminal")
 	}
-	runner.getProcessCredentials = func(_ string, _ *config.ProfileConfig, _ *ini.File, _ bool, _ time.Duration, output io.Writer, _ bool) (*config.AssumeRoleResult, error) {
+	runner.getProcessCredentials = func(_ context.Context, _ string, _ *config.ProfileConfig, _ *ini.File, _ bool, _ time.Duration, output io.Writer, _ bool) (*config.AssumeRoleResult, error) {
 		_, _ = fmt.Fprint(output, "authentication interaction")
 		return testAssumeRoleResult("profile"), nil
 	}
@@ -526,7 +550,7 @@ func TestCLIRunnerShell(t *testing.T) {
 		}
 		return profileConfig, nil
 	}
-	runner.getCredentials = func(profileName string, gotProfile *config.ProfileConfig, gotConfig *ini.File, verbose bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
+	runner.getCredentials = func(_ context.Context, profileName string, gotProfile *config.ProfileConfig, gotConfig *ini.File, verbose bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
 		if profileName != "profile" || gotProfile != profileConfig || gotConfig != awsConfig {
 			t.Error("getCredentials() received unexpected configuration")
 		}
@@ -656,7 +680,7 @@ func TestCLIRunnerInteractiveProfile(t *testing.T) {
 		}
 		return profileConfig, nil
 	}
-	runner.getCredentials = func(profileName string, _ *config.ProfileConfig, _ *ini.File, _ bool, _ time.Duration) (*config.AssumeRoleResult, error) {
+	runner.getCredentials = func(_ context.Context, profileName string, _ *config.ProfileConfig, _ *ini.File, _ bool, _ time.Duration) (*config.AssumeRoleResult, error) {
 		return testAssumeRoleResult(profileName), nil
 	}
 
@@ -734,7 +758,7 @@ func TestCLIRunnerFailures(t *testing.T) {
 			configure: func(r *cliRunner) {
 				r.loadAWSConfig = func() (*ini.File, error) { return ini.Empty(), nil }
 				r.getProfile = func(string, *ini.File) (*config.ProfileConfig, error) { return &config.ProfileConfig{}, nil }
-				r.getCredentials = func(string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error) {
+				r.getCredentials = func(context.Context, string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error) {
 					return nil, errors.New("credential failure")
 				}
 			},
@@ -746,7 +770,7 @@ func TestCLIRunnerFailures(t *testing.T) {
 			configure: func(r *cliRunner) {
 				r.loadAWSConfig = func() (*ini.File, error) { return ini.Empty(), nil }
 				r.getProfile = func(string, *ini.File) (*config.ProfileConfig, error) { return &config.ProfileConfig{}, nil }
-				r.getCredentials = func(string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error) {
+				r.getCredentials = func(context.Context, string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error) {
 					return testAssumeRoleResult("profile"), nil
 				}
 				r.environ = func() []string { return nil }
@@ -760,7 +784,7 @@ func TestCLIRunnerFailures(t *testing.T) {
 			configure: func(r *cliRunner) {
 				r.loadAWSConfig = func() (*ini.File, error) { return ini.Empty(), nil }
 				r.getProfile = func(string, *ini.File) (*config.ProfileConfig, error) { return &config.ProfileConfig{}, nil }
-				r.getCredentials = func(string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error) {
+				r.getCredentials = func(context.Context, string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error) {
 					return testAssumeRoleResult("profile"), nil
 				}
 				r.environ = func() []string { return []string{"SHELL=/bin/sh"} }
@@ -814,11 +838,11 @@ func newTestCLIRunner(t *testing.T) (*cliRunner, *bytes.Buffer, *bytes.Buffer) {
 			t.Fatal("unexpected selectProfile() call")
 			return "", nil
 		},
-		getCredentials: func(string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error) {
+		getCredentials: func(context.Context, string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error) {
 			t.Fatal("unexpected getCredentials() call")
 			return nil, nil
 		},
-		getProcessCredentials: func(string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer, bool) (*config.AssumeRoleResult, error) {
+		getProcessCredentials: func(context.Context, string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer, bool) (*config.AssumeRoleResult, error) {
 			t.Fatal("unexpected getProcessCredentials() call")
 			return nil, nil
 		},
