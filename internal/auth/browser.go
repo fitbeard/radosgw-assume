@@ -33,6 +33,15 @@ type browserFlowDependencies struct {
 	newProgress          func() browserFlowProgress
 }
 
+type browserFlowSetup struct {
+	state              string
+	codeVerifier       string
+	codeChallenge      string
+	resolvedPKCEMethod string
+	client             *http.Client
+	endpoints          oidcEndpoints
+}
+
 type realBrowserFlowTimer struct {
 	timer *time.Timer
 }
@@ -82,23 +91,8 @@ func AuthenticateBrowserFlowWithOutput(ctx context.Context, options OIDCOptions,
 }
 
 func authenticateBrowserFlow(ctx context.Context, options OIDCOptions, dependencies browserFlowDependencies) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	state, err := dependencies.generateRandomString(32)
+	setup, err := prepareBrowserFlow(ctx, options, dependencies)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate state: %w", err)
-	}
-	codeVerifier, codeChallenge, resolvedPKCEMethod, err := dependencies.generatePKCE(string(options.PKCEMethod))
-	if err != nil {
-		return "", err
-	}
-	client := dependencies.newHTTPClient(options.SSLVerify)
-	endpoints, err := dependencies.discoverEndpoints(ctx, client, options.ProviderURL)
-	if err != nil {
-		return "", err
-	}
-	if err := endpoints.validateBrowserFlow(); err != nil {
 		return "", err
 	}
 
@@ -114,48 +108,12 @@ func authenticateBrowserFlow(ctx context.Context, options OIDCOptions, dependenc
 	}
 
 	redirectURI := fmt.Sprintf("http://localhost:%d/callback", callbackServer.port)
-	authURL := buildBrowserAuthorizationURL(
-		endpoints.authorization,
-		options.ClientID,
-		redirectURI,
-		options.Scope,
-		state,
-		codeChallenge,
-		resolvedPKCEMethod,
-	)
+	authURL := setup.authorizationURL(options, redirectURI)
 
-	printBrowserAuthenticationInstructions(dependencies.stderr, authURL)
-	if err := dependencies.openBrowser(authURL); err != nil {
-		_, _ = fmt.Fprintf(dependencies.stderr, "# ⚠ Could not open browser automatically: %v\n", err)
-		_, _ = fmt.Fprintln(dependencies.stderr, "#")
-		_, _ = fmt.Fprintln(dependencies.stderr, "# 📋 Please manually open this URL in your browser:")
-		_, _ = fmt.Fprintf(dependencies.stderr, "# %s\n", authURL)
-	} else {
-		_, _ = fmt.Fprintln(dependencies.stderr, "# ✓ Browser opened successfully")
-	}
-	printBrowserAuthenticationWait(dependencies.stderr)
-
-	// Wait for callback with timeout.
-	timeout := dependencies.newTimer(AuthTimeout)
-	defer timeout.Stop()
-
-	// Progress indication
-	progress := dependencies.newProgress()
-
-	var callbackResult browserCallbackResult
-	select {
-	case callbackResult = <-callbackResults:
-		// Callback received
-		progress.Stop()
-	case err := <-callbackServer.errors:
-		progress.StopQuiet()
-		return "", fmt.Errorf("callback server failed: %w", err)
-	case <-timeout.Done():
-		progress.StopQuiet()
-		return "", fmt.Errorf("authentication timed out after %v", AuthTimeout)
-	case <-ctx.Done():
-		progress.StopQuiet()
-		return "", ctx.Err()
+	presentBrowserAuthorization(authURL, dependencies)
+	callbackResult, err := waitForBrowserCallback(ctx, callbackResults, callbackServer, dependencies)
+	if err != nil {
+		return "", err
 	}
 
 	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), CallbackShutdownTimeout)
@@ -164,17 +122,9 @@ func authenticateBrowserFlow(ctx context.Context, options OIDCOptions, dependenc
 		return "", fmt.Errorf("failed to stop callback server: %w", err)
 	}
 
-	if callbackResult.errorCode != "" {
-		return "", FormatOIDCError(callbackResult.errorCode, callbackResult.errorDescription, options.ProviderURL)
-	}
-
-	if callbackResult.code == "" {
-		return "", fmt.Errorf("no authorization code received")
-	}
-
-	// Validate state parameter
-	if callbackResult.state != state {
-		return "", fmt.Errorf("security error: state parameter mismatch")
+	authorizationCode, err := browserAuthorizationCode(callbackResult, setup.state, options.ProviderURL)
+	if err != nil {
+		return "", err
 	}
 
 	if options.Verbose {
@@ -182,20 +132,7 @@ func authenticateBrowserFlow(ctx context.Context, options OIDCOptions, dependenc
 		_, _ = fmt.Fprintln(dependencies.stderr, "# Exchanging authorization code for tokens...")
 	}
 
-	tokenData := url.Values{}
-	tokenData.Set("grant_type", "authorization_code")
-	tokenData.Set("client_id", options.ClientID)
-	tokenData.Set("code", callbackResult.code)
-	tokenData.Set("redirect_uri", redirectURI)
-	tokenData.Set("code_verifier", codeVerifier)
-
-	accessToken, err := exchangeBrowserAuthorizationCode(
-		ctx,
-		client,
-		endpoints.token,
-		tokenData,
-		options.ProviderURL,
-	)
+	accessToken, err := setup.exchangeAuthorizationCode(ctx, options, authorizationCode, redirectURI)
 	if err != nil {
 		return "", err
 	}
@@ -207,19 +144,111 @@ func authenticateBrowserFlow(ctx context.Context, options OIDCOptions, dependenc
 	return accessToken, nil
 }
 
-func buildBrowserAuthorizationURL(authEndpoint, clientID, redirectURI, scope, state, codeChallenge, pkceMethod string) string {
-	authURL, err := url.Parse(authEndpoint)
+func prepareBrowserFlow(ctx context.Context, options OIDCOptions, dependencies browserFlowDependencies) (browserFlowSetup, error) {
+	if err := ctx.Err(); err != nil {
+		return browserFlowSetup{}, err
+	}
+
+	state, err := dependencies.generateRandomString(32)
 	if err != nil {
-		return authEndpoint
+		return browserFlowSetup{}, fmt.Errorf("failed to generate state: %w", err)
+	}
+	codeVerifier, codeChallenge, resolvedPKCEMethod, err := dependencies.generatePKCE(string(options.PKCEMethod))
+	if err != nil {
+		return browserFlowSetup{}, err
+	}
+
+	client := dependencies.newHTTPClient(options.SSLVerify)
+	endpoints, err := dependencies.discoverEndpoints(ctx, client, options.ProviderURL)
+	if err != nil {
+		return browserFlowSetup{}, err
+	}
+	if err := endpoints.validateBrowserFlow(); err != nil {
+		return browserFlowSetup{}, err
+	}
+
+	return browserFlowSetup{
+		state:              state,
+		codeVerifier:       codeVerifier,
+		codeChallenge:      codeChallenge,
+		resolvedPKCEMethod: resolvedPKCEMethod,
+		client:             client,
+		endpoints:          endpoints,
+	}, nil
+}
+
+func presentBrowserAuthorization(authURL string, dependencies browserFlowDependencies) {
+	printBrowserAuthenticationInstructions(dependencies.stderr, authURL)
+	if err := dependencies.openBrowser(authURL); err != nil {
+		_, _ = fmt.Fprintf(dependencies.stderr, "# ⚠ Could not open browser automatically: %v\n", err)
+		_, _ = fmt.Fprintln(dependencies.stderr, "#")
+		_, _ = fmt.Fprintln(dependencies.stderr, "# 📋 Please manually open this URL in your browser:")
+		_, _ = fmt.Fprintf(dependencies.stderr, "# %s\n", authURL)
+	} else {
+		_, _ = fmt.Fprintln(dependencies.stderr, "# ✓ Browser opened successfully")
+	}
+	printBrowserAuthenticationWait(dependencies.stderr)
+}
+
+func waitForBrowserCallback(ctx context.Context, results <-chan browserCallbackResult, server *browserCallbackServer, dependencies browserFlowDependencies) (browserCallbackResult, error) {
+	timeout := dependencies.newTimer(AuthTimeout)
+	defer timeout.Stop()
+
+	progress := dependencies.newProgress()
+	select {
+	case result := <-results:
+		progress.Stop()
+		return result, nil
+	case err := <-server.errors:
+		progress.StopQuiet()
+		return browserCallbackResult{}, fmt.Errorf("callback server failed: %w", err)
+	case <-timeout.Done():
+		progress.StopQuiet()
+		return browserCallbackResult{}, fmt.Errorf("authentication timed out after %v", AuthTimeout)
+	case <-ctx.Done():
+		progress.StopQuiet()
+		return browserCallbackResult{}, ctx.Err()
+	}
+}
+
+func browserAuthorizationCode(result browserCallbackResult, expectedState, providerURL string) (string, error) {
+	if result.errorCode != "" {
+		return "", FormatOIDCError(result.errorCode, result.errorDescription, providerURL)
+	}
+	if result.code == "" {
+		return "", fmt.Errorf("no authorization code received")
+	}
+	if result.state != expectedState {
+		return "", fmt.Errorf("security error: state parameter mismatch")
+	}
+
+	return result.code, nil
+}
+
+func (setup browserFlowSetup) exchangeAuthorizationCode(ctx context.Context, options OIDCOptions, authorizationCode, redirectURI string) (string, error) {
+	tokenData := url.Values{}
+	tokenData.Set("grant_type", "authorization_code")
+	tokenData.Set("client_id", options.ClientID)
+	tokenData.Set("code", authorizationCode)
+	tokenData.Set("redirect_uri", redirectURI)
+	tokenData.Set("code_verifier", setup.codeVerifier)
+
+	return exchangeBrowserAuthorizationCode(ctx, setup.client, setup.endpoints.token, tokenData, options.ProviderURL)
+}
+
+func (setup browserFlowSetup) authorizationURL(options OIDCOptions, redirectURI string) string {
+	authURL, err := url.Parse(setup.endpoints.authorization)
+	if err != nil {
+		return setup.endpoints.authorization
 	}
 	authParams := authURL.Query()
-	authParams.Set("client_id", clientID)
+	authParams.Set("client_id", options.ClientID)
 	authParams.Set("redirect_uri", redirectURI)
 	authParams.Set("response_type", "code")
-	authParams.Set("scope", scope)
-	authParams.Set("state", state)
-	authParams.Set("code_challenge", codeChallenge)
-	authParams.Set("code_challenge_method", pkceMethod)
+	authParams.Set("scope", options.Scope)
+	authParams.Set("state", setup.state)
+	authParams.Set("code_challenge", setup.codeChallenge)
+	authParams.Set("code_challenge_method", setup.resolvedPKCEMethod)
 	authURL.RawQuery = authParams.Encode()
 	return authURL.String()
 }
