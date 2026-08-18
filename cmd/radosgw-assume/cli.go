@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +12,6 @@ import (
 	"github.com/fitbeard/radosgw-assume/internal/credentialcache"
 	"github.com/fitbeard/radosgw-assume/internal/credentials"
 	"github.com/fitbeard/radosgw-assume/internal/ui"
-	"github.com/fitbeard/radosgw-assume/internal/version"
 
 	"gopkg.in/ini.v1"
 )
@@ -71,145 +69,24 @@ func (r *cliRunner) runContext(ctx context.Context, program string, args []strin
 		return 1
 	}
 
-	switch options.action {
-	case actionHelp:
-		ui.FprintUsage(r.stdout)
-		return 0
-	case actionVersion:
-		version.FprintVersion(r.stdout)
-		return 0
-	case actionCacheStatus:
-		summary, err := r.inspectCache()
-		if err != nil {
-			_, _ = fmt.Fprintf(r.stderr, "Error inspecting credential cache: %v\n", err)
-			return 1
-		}
-		fprintCacheStatus(r.stdout, summary)
-		return 0
-	case actionCacheClear:
-		result, err := r.clearCache()
-		if err != nil {
-			_, _ = fmt.Fprintf(r.stderr, "Error clearing credential cache: %v\n", err)
-			return 1
-		}
-		_, _ = fmt.Fprintf(r.stdout, "Cleared %d credential cache entries from %s\n", result.Removed, result.Directory)
-		return 0
+	if exitCode, handled := r.runStandaloneAction(options); handled {
+		return exitCode
 	}
 	if options.action == actionRun && options.profileName == "" && !options.useEnv && r.deferInteractiveExport {
 		fprintForegroundExport(r.stdout, program, args)
 		return 0
 	}
 
-	profileName := options.profileName
-	var profileConfig *config.ProfileConfig
-	var awsConfig *ini.File
-
-	if options.useEnv {
-		profileConfig, err = r.loadEnvConfig()
-		if err != nil {
-			_, _ = fmt.Fprintf(r.stderr, "Error loading configuration from environment variables: %v\n", err)
-			return 1
-		}
-		profileName = "env"
-		if options.verbose {
-			_, _ = fmt.Fprintln(r.stderr, "# Using configuration from environment variables")
-		}
-	} else {
-		awsConfig, err = r.loadAWSConfig()
-		if err != nil {
-			_, _ = fmt.Fprintf(r.stderr, "Error loading AWS config: %v\n", err)
-			return 1
-		}
-
-		if profileName == "" {
-			profiles := r.getProfiles(awsConfig)
-			if len(profiles) == 0 {
-				_, _ = fmt.Fprintln(r.stderr, "No RadosGW profiles found in AWS config file")
-				return 1
-			}
-
-			profileName, err = r.selectProfile(profiles)
-			if err != nil {
-				if errors.Is(err, ui.ErrSelectionCancelled) {
-					return 0
-				}
-				_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
-				return 1
-			}
-		}
-
-		profileConfig, err = r.getProfile(profileName, awsConfig)
-		if err != nil {
-			_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
-			return 1
-		}
+	profile, exitCode := r.loadCLIProfile(options)
+	if profile == nil {
+		return exitCode
 	}
 
-	if options.sessionName != "" {
-		profileConfig.RoleSessionName = options.sessionName
-	}
-
-	var result *config.AssumeRoleResult
-	if options.action == actionCredentialProcess {
-		authenticationOutput := r.stderr
-		terminal, terminalErr := r.openTerminal()
-		if terminalErr == nil && terminal != nil {
-			defer func() { _ = terminal.Close() }()
-			authenticationOutput = terminal
-		}
-		result, err = r.getProcessCredentials(ctx, profileName, profileConfig, awsConfig, options.verbose, options.sessionDuration, authenticationOutput, options.noCache)
-	} else {
-		result, err = r.getCredentials(ctx, profileName, profileConfig, awsConfig, options.verbose, options.sessionDuration)
-	}
+	result, err := r.acquireCredentials(ctx, options, profile)
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			return 130
-		}
-		_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
-		return 1
+		return r.reportCredentialError(err)
 	}
-	if options.action == actionExec {
-		if err := r.execCommand(options.command, credentialEnvironment(r.environ(), result)); err != nil {
-			_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
-			return 1
-		}
-		return 0
-	}
-	if options.action == actionShell {
-		environment := shellEnvironment(r.environ(), result)
-		launch, err := prepareInteractiveShell(environment, !options.noPrompt)
-		if err != nil {
-			_, _ = fmt.Fprintf(r.stderr, "Error preparing interactive shell: %v\n", err)
-			return 1
-		}
-		defer launch.cleanup()
-
-		_, _ = fmt.Fprintf(r.stderr, "# Entering RadosGW shell for profile: %s\n", result.ProfileName)
-		_, _ = fmt.Fprintf(r.stderr, "# Credentials valid until: %s\n", result.Expiration)
-		if launch.promptModified {
-			_, _ = fmt.Fprintf(r.stderr, "# Prompt marker: [%s]\n", promptLabel(result.ProfileName))
-		}
-		_, _ = fmt.Fprintln(r.stderr, "# Type 'exit' or press Ctrl+D to return.")
-		if err := r.execCommand(launch.command, launch.environment); err != nil {
-			_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
-			return 1
-		}
-		return 0
-	}
-	if options.action == actionCredentialProcess {
-		if err := ui.FprintCredentialProcess(r.stdout, result); err != nil {
-			_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
-			return 1
-		}
-		return 0
-	}
-
-	if options.verbose {
-		ui.FprintCredentials(r.stdout, r.stderr, result)
-	} else {
-		ui.FprintCredentialsOnly(r.stdout, result)
-	}
-	return 0
+	return r.runCredentialAction(options, result)
 }
 
 func openControllingTerminal() (io.WriteCloser, error) {
@@ -235,16 +112,6 @@ func fprintForegroundExport(w io.Writer, program string, args []string) {
 		command = append(command, ui.ShellQuote(arg))
 	}
 	_, _ = fmt.Fprintf(w, "eval \"$(%s=1 %s)\"\n", foregroundExportEnvironment, strings.Join(command, " "))
-}
-
-func fprintCacheStatus(w io.Writer, summary credentialcache.Summary) {
-	_, _ = fmt.Fprintf(w, "Credential cache: %s\n", summary.Directory)
-	_, _ = fmt.Fprintf(w, "Entries: %d\n", summary.Total())
-	if summary.Total() > 0 {
-		_, _ = fmt.Fprintf(w, "  Valid: %d\n", summary.Valid)
-		_, _ = fmt.Fprintf(w, "  Expired: %d\n", summary.Expired)
-		_, _ = fmt.Fprintf(w, "  Invalid: %d\n", summary.Invalid)
-	}
 }
 
 func credentialEnvironment(environment []string, result *config.AssumeRoleResult) []string {
