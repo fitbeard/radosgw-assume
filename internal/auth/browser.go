@@ -68,29 +68,20 @@ func newBrowserFlowDependencies() browserFlowDependencies {
 }
 
 // AuthenticateBrowserFlow performs OIDC authorization code flow with PKCE.
-func AuthenticateBrowserFlow(ctx context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool) (string, error) {
-	return AuthenticateBrowserFlowWithOutput(ctx, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode, os.Stderr)
+func AuthenticateBrowserFlow(ctx context.Context, options OIDCOptions) (string, error) {
+	return AuthenticateBrowserFlowWithOutput(ctx, options, os.Stderr)
 }
 
 // AuthenticateBrowserFlowWithOutput performs OIDC authorization code flow
 // authentication and writes user interaction to output.
-func AuthenticateBrowserFlowWithOutput(ctx context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, output io.Writer) (string, error) {
+func AuthenticateBrowserFlowWithOutput(ctx context.Context, options OIDCOptions, output io.Writer) (string, error) {
 	dependencies := newBrowserFlowDependencies()
 	dependencies.stderr = output
 	dependencies.newProgress = func() browserFlowProgress { return newProgressIndicatorWithOutput(output) }
-	return authenticateBrowserFlow(
-		ctx,
-		providerURL,
-		clientID,
-		scope,
-		pkceMethod,
-		sslVerify,
-		verboseMode,
-		dependencies,
-	)
+	return authenticateBrowserFlow(ctx, options, dependencies)
 }
 
-func authenticateBrowserFlow(ctx context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, dependencies browserFlowDependencies) (string, error) {
+func authenticateBrowserFlow(ctx context.Context, options OIDCOptions, dependencies browserFlowDependencies) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -98,12 +89,12 @@ func authenticateBrowserFlow(ctx context.Context, providerURL, clientID, scope, 
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
 	}
-	codeVerifier, codeChallenge, resolvedPKCEMethod, err := dependencies.generatePKCE(pkceMethod)
+	codeVerifier, codeChallenge, resolvedPKCEMethod, err := dependencies.generatePKCE(string(options.PKCEMethod))
 	if err != nil {
 		return "", err
 	}
-	client := dependencies.newHTTPClient(sslVerify)
-	endpoints, err := dependencies.discoverEndpoints(ctx, client, providerURL)
+	client := dependencies.newHTTPClient(options.SSLVerify)
+	endpoints, err := dependencies.discoverEndpoints(ctx, client, options.ProviderURL)
 	if err != nil {
 		return "", err
 	}
@@ -118,16 +109,16 @@ func authenticateBrowserFlow(ctx context.Context, providerURL, clientID, scope, 
 	}
 	defer func() { _ = callbackServer.close() }()
 
-	if callbackServer.port == CallbackFallbackPort && verboseMode {
+	if callbackServer.port == CallbackFallbackPort && options.Verbose {
 		_, _ = fmt.Fprintf(dependencies.stderr, "# Port %d is busy, using fallback port %d...\n", CallbackPort, CallbackFallbackPort)
 	}
 
 	redirectURI := fmt.Sprintf("http://localhost:%d/callback", callbackServer.port)
 	authURL := buildBrowserAuthorizationURL(
 		endpoints.authorization,
-		clientID,
+		options.ClientID,
 		redirectURI,
-		scope,
+		options.Scope,
 		state,
 		codeChallenge,
 		resolvedPKCEMethod,
@@ -174,7 +165,7 @@ func authenticateBrowserFlow(ctx context.Context, providerURL, clientID, scope, 
 	}
 
 	if callbackResult.errorCode != "" {
-		return "", FormatOIDCError(callbackResult.errorCode, callbackResult.errorDescription, providerURL)
+		return "", FormatOIDCError(callbackResult.errorCode, callbackResult.errorDescription, options.ProviderURL)
 	}
 
 	if callbackResult.code == "" {
@@ -186,14 +177,14 @@ func authenticateBrowserFlow(ctx context.Context, providerURL, clientID, scope, 
 		return "", fmt.Errorf("security error: state parameter mismatch")
 	}
 
-	if verboseMode {
+	if options.Verbose {
 		_, _ = fmt.Fprintln(dependencies.stderr, "# ✓ Authentication successful!")
 		_, _ = fmt.Fprintln(dependencies.stderr, "# Exchanging authorization code for tokens...")
 	}
 
 	tokenData := url.Values{}
 	tokenData.Set("grant_type", "authorization_code")
-	tokenData.Set("client_id", clientID)
+	tokenData.Set("client_id", options.ClientID)
 	tokenData.Set("code", callbackResult.code)
 	tokenData.Set("redirect_uri", redirectURI)
 	tokenData.Set("code_verifier", codeVerifier)
@@ -203,13 +194,13 @@ func authenticateBrowserFlow(ctx context.Context, providerURL, clientID, scope, 
 		client,
 		endpoints.token,
 		tokenData,
-		providerURL,
+		options.ProviderURL,
 	)
 	if err != nil {
 		return "", err
 	}
 
-	if verboseMode {
+	if options.Verbose {
 		_, _ = fmt.Fprintln(dependencies.stderr, "# ✓ Successfully obtained access token")
 	}
 

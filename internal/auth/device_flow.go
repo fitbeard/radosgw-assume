@@ -7,16 +7,16 @@ import (
 	"time"
 )
 
-func authenticateDeviceFlow(ctx context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, dependencies deviceFlowDependencies) (string, error) {
+func authenticateDeviceFlow(ctx context.Context, options OIDCOptions, dependencies deviceFlowDependencies) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	codeVerifier, codeChallenge, resolvedPKCEMethod, err := dependencies.generatePKCE(pkceMethod)
+	codeVerifier, codeChallenge, resolvedPKCEMethod, err := dependencies.generatePKCE(string(options.PKCEMethod))
 	if err != nil {
 		return "", err
 	}
-	client := dependencies.newHTTPClient(sslVerify)
-	endpoints, err := dependencies.discoverEndpoints(ctx, client, providerURL)
+	client := dependencies.newHTTPClient(options.SSLVerify)
+	endpoints, err := dependencies.discoverEndpoints(ctx, client, options.ProviderURL)
 	if err != nil {
 		return "", err
 	}
@@ -24,17 +24,17 @@ func authenticateDeviceFlow(ctx context.Context, providerURL, clientID, scope, p
 		return "", err
 	}
 
-	if verboseMode {
+	if options.Verbose {
 		_, _ = fmt.Fprintln(dependencies.stderr, "# Starting device authorization flow...")
 	}
 
 	authorizationData := url.Values{}
-	authorizationData.Set("client_id", clientID)
-	authorizationData.Set("scope", scope)
+	authorizationData.Set("client_id", options.ClientID)
+	authorizationData.Set("scope", options.Scope)
 	authorizationData.Set("code_challenge", codeChallenge)
 	authorizationData.Set("code_challenge_method", resolvedPKCEMethod)
 
-	deviceResponse, err := requestDeviceAuthorization(ctx, client, endpoints.deviceAuthorization, authorizationData, providerURL)
+	deviceResponse, err := requestDeviceAuthorization(ctx, client, endpoints.deviceAuthorization, authorizationData, options.ProviderURL)
 	if err != nil {
 		return "", err
 	}
@@ -44,7 +44,7 @@ func authenticateDeviceFlow(ctx context.Context, providerURL, clientID, scope, p
 
 	tokenData := url.Values{}
 	tokenData.Set("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
-	tokenData.Set("client_id", clientID)
+	tokenData.Set("client_id", options.ClientID)
 	tokenData.Set("device_code", deviceResponse.DeviceCode)
 	tokenData.Set("code_verifier", codeVerifier)
 
@@ -58,9 +58,9 @@ func authenticateDeviceFlow(ctx context.Context, providerURL, clientID, scope, p
 		client:      client,
 		endpoint:    endpoints.token,
 		data:        tokenData,
-		providerURL: providerURL,
+		providerURL: options.ProviderURL,
 		interval:    pollInterval,
 		lifetime:    deviceLifetime,
 		expiresAt:   dependencies.now().Add(deviceLifetime),
-	}, verboseMode, dependencies)
+	}, options.Verbose, dependencies)
 }

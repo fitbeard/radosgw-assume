@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/fitbeard/radosgw-assume/internal/config"
 )
 
 // Note: These tests focus on struct validation and type checking
@@ -161,14 +163,11 @@ func TestAuthenticateDeviceFlow(t *testing.T) {
 			}
 			dependencies.newProgress = func() deviceFlowProgress { return &testDeviceFlowProgress{} }
 
-			token, err := authenticateDeviceFlow(t.Context(),
-				server.URL+"/",
-				"test-client",
-				"openid profile",
-				pkceMethod,
-				true,
-				false,
-				dependencies)
+			options := testOIDCOptions()
+			options.ProviderURL = server.URL + "/"
+			options.Scope = "openid profile"
+			options.PKCEMethod = config.PKCEMethod(pkceMethod)
+			token, err := authenticateDeviceFlow(t.Context(), options, dependencies)
 
 			if err != nil {
 				t.Fatalf("AuthenticateDeviceFlow() error = %v", err)
@@ -317,14 +316,14 @@ func TestAuthenticationFlowsHonorPreCanceledContext(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		authenticate func(context.Context, string, string, string, string, bool, bool) (string, error)
+		authenticate func(context.Context, OIDCOptions) (string, error)
 	}{
 		{name: "device", authenticate: AuthenticateDeviceFlow},
 		{name: "browser", authenticate: AuthenticateBrowserFlow},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := test.authenticate(ctx, "https://oidc.example.com", "test-client", "openid", PKCEMethodS256, true, false)
+			_, err := test.authenticate(ctx, testOIDCOptions())
 			if !errors.Is(err, context.Canceled) {
 				t.Errorf("authentication error = %v, want context cancellation", err)
 			}
