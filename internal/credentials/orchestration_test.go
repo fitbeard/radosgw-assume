@@ -103,7 +103,14 @@ func TestGetCredentials_AuthFlows(t *testing.T) {
 				}, nil
 			}
 
-			result, err := getCredentials(t.Context(), "test-profile", profileConfig, ini.Empty(), true, 2*time.Hour, dependencies)
+			result, err := getCredentials(t.Context(), RequestOptions{
+				ProfileName:     "test-profile",
+				ProfileConfig:   profileConfig,
+				AWSConfig:       ini.Empty(),
+				Verbose:         true,
+				SessionDuration: 2 * time.Hour,
+				Output:          stderr,
+			}, dependencies)
 			if err != nil {
 				t.Fatalf("getCredentials() error = %v", err)
 			}
@@ -169,7 +176,14 @@ func TestGetCredentials_SourceProfile(t *testing.T) {
 		return &config.AssumeRoleResult{}, nil
 	}
 
-	result, err := getCredentials(t.Context(), "derived", profileConfig, awsConfig, true, time.Hour, dependencies)
+	result, err := getCredentials(t.Context(), RequestOptions{
+		ProfileName:     "derived",
+		ProfileConfig:   profileConfig,
+		AWSConfig:       awsConfig,
+		Verbose:         true,
+		SessionDuration: time.Hour,
+		Output:          stderr,
+	}, dependencies)
 	if err != nil {
 		t.Fatalf("getCredentials() error = %v", err)
 	}
@@ -247,7 +261,12 @@ func TestGetCredentials_DependencyErrors(t *testing.T) {
 			}
 			test.configure(&dependencies)
 
-			_, err := getCredentials(t.Context(), "test-profile", profileConfig, ini.Empty(), false, time.Hour, dependencies)
+			_, err := getCredentials(t.Context(), RequestOptions{
+				ProfileName:     "test-profile",
+				ProfileConfig:   profileConfig,
+				AWSConfig:       ini.Empty(),
+				SessionDuration: time.Hour,
+			}, dependencies)
 			if err == nil {
 				t.Fatal("getCredentials() expected an error")
 			}
@@ -268,7 +287,12 @@ func TestGetCredentials_SourceProfileError(t *testing.T) {
 		SourceProfile: "base",
 	}
 
-	_, err := getCredentials(t.Context(), "derived", profileConfig, ini.Empty(), false, time.Hour, dependencies)
+	_, err := getCredentials(t.Context(), RequestOptions{
+		ProfileName:     "derived",
+		ProfileConfig:   profileConfig,
+		AWSConfig:       ini.Empty(),
+		SessionDuration: time.Hour,
+	}, dependencies)
 	if err == nil || !strings.Contains(err.Error(), "source profile failure") {
 		t.Errorf("getCredentials() error = %v, want source profile failure", err)
 	}

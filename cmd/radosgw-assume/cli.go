@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/fitbeard/radosgw-assume/internal/config"
 	"github.com/fitbeard/radosgw-assume/internal/credentialcache"
@@ -29,8 +28,8 @@ type cliRunner struct {
 	getProfiles           func(*ini.File) []string
 	getProfile            func(string, *ini.File) (*config.ProfileConfig, error)
 	selectProfile         func([]string) (string, error)
-	getCredentials        func(context.Context, string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error)
-	getProcessCredentials func(context.Context, string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer, bool) (*config.AssumeRoleResult, error)
+	getCredentials        func(context.Context, credentials.RequestOptions) (*config.AssumeRoleResult, error)
+	getProcessCredentials func(context.Context, credentials.ProcessRequestOptions) (*config.AssumeRoleResult, error)
 	inspectCache          func() (credentialcache.Summary, error)
 	clearCache            func() (credentialcache.ClearResult, error)
 	openTerminal          func() (io.WriteCloser, error)

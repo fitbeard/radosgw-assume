@@ -23,7 +23,7 @@ func TestGetCredentials(t *testing.T) {
 		RoleArn: "arn:aws:iam::123456789012:role/TestRole",
 	}
 
-	_, err := GetCredentials(t.Context(), "test-profile", profileConfig, awsConfig, false, time.Hour)
+	_, err := GetCredentials(t.Context(), testRequestOptions("test-profile", profileConfig, awsConfig))
 	if err == nil {
 		t.Error("GetCredentials() with missing endpoint URL should return error")
 	}
@@ -35,7 +35,7 @@ func TestGetCredentials(t *testing.T) {
 		EndpointURL: "https://test.example.com",
 	}
 
-	_, err = GetCredentials(t.Context(), "test-profile", profileConfigNoRole, awsConfig, false, time.Hour)
+	_, err = GetCredentials(t.Context(), testRequestOptions("test-profile", profileConfigNoRole, awsConfig))
 	if err == nil {
 		t.Error("GetCredentials() with missing role ARN should return error")
 	}
@@ -48,7 +48,7 @@ func TestGetCredentials(t *testing.T) {
 		RoleArn:     "arn:aws:iam::123456789012:role/TestRole",
 	}
 
-	_, err = GetCredentials(t.Context(), "test-profile", profileConfigNoOIDC, awsConfig, false, time.Hour)
+	_, err = GetCredentials(t.Context(), testRequestOptions("test-profile", profileConfigNoOIDC, awsConfig))
 	if err == nil {
 		t.Error("GetCredentials() with missing OIDC provider should return error")
 	}
@@ -61,7 +61,7 @@ func TestGetCredentialsHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	_, err := GetCredentials(ctx, "test-profile", &config.ProfileConfig{}, ini.Empty(), false, time.Hour)
+	_, err := GetCredentials(ctx, testRequestOptions("test-profile", &config.ProfileConfig{}, ini.Empty()))
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("GetCredentials() error = %v, want context cancellation", err)
 	}
@@ -80,7 +80,7 @@ func TestGetCredentials_TokenAuth(t *testing.T) {
 		RadosGWOIDCAuthType: "token",
 	}
 
-	_, err := GetCredentials(t.Context(), "test-profile", profileConfig, awsConfig, false, time.Hour)
+	_, err := GetCredentials(t.Context(), testRequestOptions("test-profile", profileConfig, awsConfig))
 	if err == nil {
 		t.Error("GetCredentials() with token auth but no token should return error")
 	}
@@ -100,7 +100,7 @@ func TestGetCredentials_InvalidAuthType(t *testing.T) {
 		RadosGWOIDCAuthType: "unsupported",
 	}
 
-	_, err := GetCredentials(t.Context(), "test-profile", profileConfig, awsConfig, false, time.Hour)
+	_, err := GetCredentials(t.Context(), testRequestOptions("test-profile", profileConfig, awsConfig))
 	if err == nil {
 		t.Error("GetCredentials() with invalid auth type should return error")
 	}
@@ -154,7 +154,7 @@ func TestGetCredentials_SSLVerifyParsing(t *testing.T) {
 				RadosGWSSLVerify:    test.sslVerify,
 			}
 
-			_, err := GetCredentials(t.Context(), "test-profile", profileConfig, awsConfig, false, time.Hour)
+			_, err := GetCredentials(t.Context(), testRequestOptions("test-profile", profileConfig, awsConfig))
 			if err == nil {
 				t.Fatal("GetCredentials() expected an error")
 			}
@@ -200,7 +200,7 @@ func TestGetCredentials_DefaultAuthType(t *testing.T) {
 		RadosGWOIDCClientID: "test-client",
 	}
 
-	_, err := GetCredentials(t.Context(), "test-profile", profileConfig, awsConfig, false, time.Hour)
+	_, err := GetCredentials(t.Context(), testRequestOptions("test-profile", profileConfig, awsConfig))
 	if err == nil {
 		t.Fatal("GetCredentials() expected an error from the test server")
 	}
@@ -224,7 +224,7 @@ func TestGetCredentials_InvalidPKCEMethod(t *testing.T) {
 		RadosGWOIDCPKCEMethod: "invalid",
 	}
 
-	_, err := GetCredentials(t.Context(), "test-profile", profileConfig, ini.Empty(), false, time.Hour)
+	_, err := GetCredentials(t.Context(), testRequestOptions("test-profile", profileConfig, ini.Empty()))
 	if err == nil {
 		t.Fatal("GetCredentials() expected an error")
 	}
@@ -262,7 +262,7 @@ func TestGetCredentials_DefaultScope(t *testing.T) {
 		RadosGWOIDCClientID: "test-client",
 	}
 
-	_, err := GetCredentials(t.Context(), "test-profile", profileConfig, awsConfig, false, time.Hour)
+	_, err := GetCredentials(t.Context(), testRequestOptions("test-profile", profileConfig, awsConfig))
 	if err == nil {
 		t.Fatal("GetCredentials() expected an error from the test server")
 	}
@@ -314,11 +314,20 @@ source_profile = base
 		t.Fatalf("GetProfileConfig() error = %v", err)
 	}
 
-	result, err := GetCredentials(t.Context(), "derived", profileConfig, awsConfig, false, time.Hour)
+	result, err := GetCredentials(t.Context(), testRequestOptions("derived", profileConfig, awsConfig))
 	if err != nil {
 		t.Fatalf("GetCredentials() error = %v", err)
 	}
 	if result.EndpointURL != server.URL {
 		t.Errorf("EndpointURL = %q, want %q", result.EndpointURL, server.URL)
+	}
+}
+
+func testRequestOptions(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File) RequestOptions {
+	return RequestOptions{
+		ProfileName:     profileName,
+		ProfileConfig:   profileConfig,
+		AWSConfig:       awsConfig,
+		SessionDuration: time.Hour,
 	}
 }

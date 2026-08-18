@@ -8,6 +8,7 @@ import (
 
 	"github.com/fitbeard/radosgw-assume/internal/config"
 	"github.com/fitbeard/radosgw-assume/internal/credentialcache"
+	"github.com/fitbeard/radosgw-assume/internal/credentials"
 	"github.com/fitbeard/radosgw-assume/internal/ui"
 	"github.com/fitbeard/radosgw-assume/internal/version"
 
@@ -111,25 +112,25 @@ func (r *cliRunner) acquireCredentials(ctx context.Context, options cliOptions, 
 			defer func() { _ = terminal.Close() }()
 			authenticationOutput = terminal
 		}
-		return r.getProcessCredentials(
-			ctx,
-			profile.name,
-			profile.profileConfig,
-			profile.awsConfig,
-			options.verbose,
-			options.sessionDuration,
-			authenticationOutput,
-			options.noCache,
-		)
+		return r.getProcessCredentials(ctx, credentials.ProcessRequestOptions{
+			RequestOptions: credentials.RequestOptions{
+				ProfileName:     profile.name,
+				ProfileConfig:   profile.profileConfig,
+				AWSConfig:       profile.awsConfig,
+				Verbose:         options.verbose,
+				SessionDuration: options.sessionDuration,
+				Output:          authenticationOutput,
+			},
+			NoCache: options.noCache,
+		})
 	}
-	return r.getCredentials(
-		ctx,
-		profile.name,
-		profile.profileConfig,
-		profile.awsConfig,
-		options.verbose,
-		options.sessionDuration,
-	)
+	return r.getCredentials(ctx, credentials.RequestOptions{
+		ProfileName:     profile.name,
+		ProfileConfig:   profile.profileConfig,
+		AWSConfig:       profile.awsConfig,
+		Verbose:         options.verbose,
+		SessionDuration: options.sessionDuration,
+	})
 }
 
 func (r *cliRunner) reportCredentialError(err error) int {
