@@ -50,7 +50,7 @@ type browserFlowDependencies struct {
 	startCallbackServer  func(chan<- browserCallbackResult) (*browserCallbackServer, error)
 	openBrowser          func(string) error
 	newHTTPClient        func(bool) *http.Client
-	discoverEndpoints    func(*http.Client, string) (oidcEndpoints, error)
+	discoverEndpoints    func(context.Context, *http.Client, string) (oidcEndpoints, error)
 	newTimer             func(time.Duration) browserFlowTimer
 	newProgress          func() browserFlowProgress
 }
@@ -90,17 +90,18 @@ func newBrowserFlowDependencies() browserFlowDependencies {
 }
 
 // AuthenticateBrowserFlow performs OIDC authorization code flow with PKCE.
-func AuthenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool) (string, error) {
-	return AuthenticateBrowserFlowWithOutput(providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode, os.Stderr)
+func AuthenticateBrowserFlow(ctx context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool) (string, error) {
+	return AuthenticateBrowserFlowWithOutput(ctx, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode, os.Stderr)
 }
 
 // AuthenticateBrowserFlowWithOutput performs OIDC authorization code flow
 // authentication and writes user interaction to output.
-func AuthenticateBrowserFlowWithOutput(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, output io.Writer) (string, error) {
+func AuthenticateBrowserFlowWithOutput(ctx context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, output io.Writer) (string, error) {
 	dependencies := newBrowserFlowDependencies()
 	dependencies.stderr = output
 	dependencies.newProgress = func() browserFlowProgress { return newProgressIndicatorWithOutput(output) }
 	return authenticateBrowserFlow(
+		ctx,
 		providerURL,
 		clientID,
 		scope,
@@ -111,7 +112,10 @@ func AuthenticateBrowserFlowWithOutput(providerURL, clientID, scope, pkceMethod 
 	)
 }
 
-func authenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, dependencies browserFlowDependencies) (string, error) {
+func authenticateBrowserFlow(ctx context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify bool, verboseMode bool, dependencies browserFlowDependencies) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	state, err := dependencies.generateRandomString(32)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate state: %w", err)
@@ -121,7 +125,7 @@ func authenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 		return "", err
 	}
 	client := dependencies.newHTTPClient(sslVerify)
-	endpoints, err := dependencies.discoverEndpoints(client, providerURL)
+	endpoints, err := dependencies.discoverEndpoints(ctx, client, providerURL)
 	if err != nil {
 		return "", err
 	}
@@ -180,6 +184,9 @@ func authenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 	case <-timeout.Done():
 		progress.StopQuiet()
 		return "", fmt.Errorf("authentication timed out after %v", AuthTimeout)
+	case <-ctx.Done():
+		progress.StopQuiet()
+		return "", ctx.Err()
 	}
 
 	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), CallbackShutdownTimeout)
@@ -214,6 +221,7 @@ func authenticateBrowserFlow(providerURL, clientID, scope, pkceMethod string, ss
 	tokenData.Set("code_verifier", codeVerifier)
 
 	accessToken, err := exchangeBrowserAuthorizationCode(
+		ctx,
 		client,
 		endpoints.token,
 		tokenData,
@@ -287,8 +295,8 @@ func printBrowserAuthenticationWait(stderr io.Writer) {
 	_, _ = fmt.Fprintln(stderr, "# Waiting for authentication...")
 }
 
-func exchangeBrowserAuthorizationCode(client *http.Client, tokenEndpoint string, tokenData url.Values, providerURL string) (string, error) {
-	response, err := client.PostForm(tokenEndpoint, tokenData)
+func exchangeBrowserAuthorizationCode(ctx context.Context, client *http.Client, tokenEndpoint string, tokenData url.Values, providerURL string) (string, error) {
+	response, err := postOIDCForm(ctx, client, tokenEndpoint, tokenData)
 	if err != nil {
 		return "", fmt.Errorf("token exchange failed: %w", err)
 	}

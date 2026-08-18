@@ -1,6 +1,7 @@
 package credentials
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -25,9 +26,9 @@ type credentialDependencies struct {
 	now    func() time.Time
 
 	resolveSourceProfile func(*config.ProfileConfig, *ini.File, bool) (*config.ProfileConfig, error)
-	authenticateDevice   func(string, string, string, string, bool, bool) (string, error)
-	authenticateBrowser  func(string, string, string, string, bool, bool) (string, error)
-	assumeRole           func(string, string, string, string, bool, time.Duration) (*config.AssumeRoleResult, error)
+	authenticateDevice   func(context.Context, string, string, string, string, bool, bool) (string, error)
+	authenticateBrowser  func(context.Context, string, string, string, string, bool, bool) (string, error)
+	assumeRole           func(context.Context, string, string, string, string, bool, time.Duration) (*config.AssumeRoleResult, error)
 }
 
 type resolvedCredentialConfig struct {
@@ -51,25 +52,28 @@ func newCredentialDependencies() credentialDependencies {
 }
 
 // GetCredentials orchestrates the authentication and role assumption process.
-func GetCredentials(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
-	return GetCredentialsWithOutput(profileName, profileConfig, awsConfig, verboseMode, sessionDuration, os.Stderr)
+func GetCredentials(ctx context.Context, profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
+	return GetCredentialsWithOutput(ctx, profileName, profileConfig, awsConfig, verboseMode, sessionDuration, os.Stderr)
 }
 
 // GetCredentialsWithOutput orchestrates authentication and role assumption,
 // writing user interaction and verbose diagnostics to output.
-func GetCredentialsWithOutput(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration, output io.Writer) (*config.AssumeRoleResult, error) {
+func GetCredentialsWithOutput(ctx context.Context, profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration, output io.Writer) (*config.AssumeRoleResult, error) {
 	dependencies := newCredentialDependencies()
 	dependencies.stderr = output
-	dependencies.authenticateDevice = func(providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
-		return auth.AuthenticateDeviceFlowWithOutput(providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode, output)
+	dependencies.authenticateDevice = func(ctx context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
+		return auth.AuthenticateDeviceFlowWithOutput(ctx, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode, output)
 	}
-	dependencies.authenticateBrowser = func(providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
-		return auth.AuthenticateBrowserFlowWithOutput(providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode, output)
+	dependencies.authenticateBrowser = func(ctx context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
+		return auth.AuthenticateBrowserFlowWithOutput(ctx, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode, output)
 	}
-	return getCredentials(profileName, profileConfig, awsConfig, verboseMode, sessionDuration, dependencies)
+	return getCredentials(ctx, profileName, profileConfig, awsConfig, verboseMode, sessionDuration, dependencies)
 }
 
-func getCredentials(profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration, dependencies credentialDependencies) (*config.AssumeRoleResult, error) {
+func getCredentials(ctx context.Context, profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration, dependencies credentialDependencies) (*config.AssumeRoleResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	resolvedConfig, err := resolveCredentialConfig(profileName, profileConfig, awsConfig, verboseMode, dependencies)
 	if err != nil {
 		return nil, err
@@ -77,7 +81,7 @@ func getCredentials(profileName string, profileConfig *config.ProfileConfig, aws
 
 	printCredentialContext(dependencies.stderr, profileName, resolvedConfig, verboseMode, sessionDuration)
 
-	accessToken, err := authenticate(resolvedConfig, verboseMode, dependencies)
+	accessToken, err := authenticate(ctx, resolvedConfig, verboseMode, dependencies)
 	if err != nil {
 		return nil, err
 	}
@@ -91,6 +95,7 @@ func getCredentials(profileName string, profileConfig *config.ProfileConfig, aws
 	verbosef(dependencies.stderr, verboseMode, "# Session name: %s\n", roleSessionName)
 
 	result, err := dependencies.assumeRole(
+		ctx,
 		resolvedConfig.sourceConfig.EndpointURL,
 		resolvedConfig.roleARN,
 		accessToken,
@@ -174,7 +179,7 @@ func printCredentialContext(stderr io.Writer, profileName string, resolvedConfig
 	verbosef(stderr, verboseMode, "# Session duration: %d seconds (%s)\n", int(sessionDuration.Seconds()), duration.Format(sessionDuration))
 }
 
-func authenticate(resolvedConfig *resolvedCredentialConfig, verboseMode bool, dependencies credentialDependencies) (string, error) {
+func authenticate(ctx context.Context, resolvedConfig *resolvedCredentialConfig, verboseMode bool, dependencies credentialDependencies) (string, error) {
 	switch resolvedConfig.authType {
 	case "token":
 		accessToken := dependencies.getenv("RADOSGW_OIDC_TOKEN")
@@ -186,6 +191,7 @@ func authenticate(resolvedConfig *resolvedCredentialConfig, verboseMode bool, de
 	case "device":
 		verbosef(dependencies.stderr, verboseMode, "# Starting device authentication flow\n")
 		accessToken, err := dependencies.authenticateDevice(
+			ctx,
 			resolvedConfig.sourceConfig.RadosGWOIDCProvider,
 			resolvedConfig.sourceConfig.RadosGWOIDCClientID,
 			resolvedConfig.scope,
@@ -200,6 +206,7 @@ func authenticate(resolvedConfig *resolvedCredentialConfig, verboseMode bool, de
 	case "browser":
 		verbosef(dependencies.stderr, verboseMode, "# Starting browser authentication flow\n")
 		accessToken, err := dependencies.authenticateBrowser(
+			ctx,
 			resolvedConfig.sourceConfig.RadosGWOIDCProvider,
 			resolvedConfig.sourceConfig.RadosGWOIDCClientID,
 			resolvedConfig.scope,

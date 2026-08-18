@@ -2,6 +2,7 @@ package credentials
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"path/filepath"
@@ -39,7 +40,7 @@ func TestGetProcessCredentialsBypassesCache(t *testing.T) {
 	profileConfig := processTestProfile()
 	want := processTestResult()
 	dependencies := processTestDependencies(t)
-	dependencies.getCredentials = func(profileName string, gotProfile *config.ProfileConfig, awsConfig *ini.File, verbose bool, duration time.Duration, output io.Writer) (*config.AssumeRoleResult, error) {
+	dependencies.getCredentials = func(_ context.Context, profileName string, gotProfile *config.ProfileConfig, awsConfig *ini.File, verbose bool, duration time.Duration, output io.Writer) (*config.AssumeRoleResult, error) {
 		if profileName != "profile" || gotProfile != profileConfig || awsConfig != nil || !verbose || duration != 12*time.Hour || output == nil {
 			t.Error("getCredentials() received unexpected arguments")
 		}
@@ -47,7 +48,7 @@ func TestGetProcessCredentialsBypassesCache(t *testing.T) {
 	}
 
 	var output bytes.Buffer
-	result, err := getProcessCredentials("profile", profileConfig, nil, true, 12*time.Hour, &output, true, dependencies)
+	result, err := getProcessCredentials(t.Context(), "profile", profileConfig, nil, true, 12*time.Hour, &output, true, dependencies)
 	if err != nil {
 		t.Fatalf("getProcessCredentials() error = %v", err)
 	}
@@ -56,6 +57,16 @@ func TestGetProcessCredentialsBypassesCache(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "Configure the AWS consumer endpoint separately: https://storage.example.com") {
 		t.Errorf("output = %q, want endpoint configuration reminder", output.String())
+	}
+}
+
+func TestGetProcessCredentialsHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	_, err := GetProcessCredentials(ctx, "profile", processTestProfile(), nil, false, time.Hour, io.Discard, false)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("GetProcessCredentials() error = %v, want context cancellation", err)
 	}
 }
 
@@ -83,11 +94,11 @@ func TestGetProcessCredentialsCachesResolvedProfile(t *testing.T) {
 		}
 		return cache, nil
 	}
-	dependencies.getCredentials = func(string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer) (*config.AssumeRoleResult, error) {
+	dependencies.getCredentials = func(context.Context, string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer) (*config.AssumeRoleResult, error) {
 		return want, nil
 	}
 
-	result, err := getProcessCredentials("profile", profileConfig, nil, false, time.Hour, &bytes.Buffer{}, false, dependencies)
+	result, err := getProcessCredentials(t.Context(), "profile", profileConfig, nil, false, time.Hour, &bytes.Buffer{}, false, dependencies)
 	if err != nil {
 		t.Fatalf("getProcessCredentials() error = %v", err)
 	}
@@ -107,7 +118,7 @@ func TestGetProcessCredentialsReportsCacheHit(t *testing.T) {
 	dependencies.newCache = func(time.Duration) (processCredentialCache, error) { return cache, nil }
 	var output bytes.Buffer
 
-	result, err := getProcessCredentials("profile", processTestProfile(), nil, true, time.Hour, &output, false, dependencies)
+	result, err := getProcessCredentials(t.Context(), "profile", processTestProfile(), nil, true, time.Hour, &output, false, dependencies)
 	if err != nil {
 		t.Fatalf("getProcessCredentials() error = %v", err)
 	}
@@ -133,7 +144,7 @@ func TestGetProcessCredentialsHidesEndpointReminderWithoutVerbose(t *testing.T) 
 	dependencies.newCache = func(time.Duration) (processCredentialCache, error) { return cache, nil }
 	var output bytes.Buffer
 
-	if _, err := getProcessCredentials("profile", processTestProfile(), nil, false, time.Hour, &output, false, dependencies); err != nil {
+	if _, err := getProcessCredentials(t.Context(), "profile", processTestProfile(), nil, false, time.Hour, &output, false, dependencies); err != nil {
 		t.Fatalf("getProcessCredentials() error = %v", err)
 	}
 	if output.Len() != 0 {
@@ -161,7 +172,7 @@ func TestGetProcessCredentialsUsesDefaultCache(t *testing.T) {
 	}
 
 	var output bytes.Buffer
-	result, err := GetProcessCredentials("profile", profile, nil, true, time.Hour, &output, false)
+	result, err := GetProcessCredentials(t.Context(), "profile", profile, nil, true, time.Hour, &output, false)
 	if err != nil {
 		t.Fatalf("GetProcessCredentials() error = %v", err)
 	}
@@ -218,7 +229,7 @@ func TestGetProcessCredentialsErrors(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			dependencies := processTestDependencies(t)
 			test.configure(&dependencies)
-			_, err := getProcessCredentials("profile", processTestProfile(), nil, false, time.Hour, &bytes.Buffer{}, false, dependencies)
+			_, err := getProcessCredentials(t.Context(), "profile", processTestProfile(), nil, false, time.Hour, &bytes.Buffer{}, false, dependencies)
 			if err == nil || !strings.Contains(err.Error(), test.wantMessage) {
 				t.Errorf("getProcessCredentials() error = %v, want %q", err, test.wantMessage)
 			}
@@ -241,7 +252,7 @@ func processTestDependencies(t *testing.T) processCredentialDependencies {
 			t.Fatal("unexpected newCache() call")
 			return nil, nil
 		},
-		getCredentials: func(string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer) (*config.AssumeRoleResult, error) {
+		getCredentials: func(context.Context, string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer) (*config.AssumeRoleResult, error) {
 			t.Fatal("unexpected getCredentials() call")
 			return nil, nil
 		},

@@ -2,6 +2,7 @@ package credentials
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -27,7 +28,7 @@ func TestGetCredentials(t *testing.T) {
 		RoleArn: "arn:aws:iam::123456789012:role/TestRole",
 	}
 
-	_, err := GetCredentials("test-profile", profileConfig, awsConfig, false, time.Hour)
+	_, err := GetCredentials(t.Context(), "test-profile", profileConfig, awsConfig, false, time.Hour)
 	if err == nil {
 		t.Error("GetCredentials() with missing endpoint URL should return error")
 	}
@@ -40,7 +41,7 @@ func TestGetCredentials(t *testing.T) {
 		EndpointURL: "https://test.example.com",
 	}
 
-	_, err = GetCredentials("test-profile", profileConfigNoRole, awsConfig, false, time.Hour)
+	_, err = GetCredentials(t.Context(), "test-profile", profileConfigNoRole, awsConfig, false, time.Hour)
 	if err == nil {
 		t.Error("GetCredentials() with missing role ARN should return error")
 	}
@@ -55,12 +56,22 @@ func TestGetCredentials(t *testing.T) {
 		// Missing RadosGWOIDCProvider and RadosGWOIDCClientID
 	}
 
-	_, err = GetCredentials("test-profile", profileConfigNoOIDC, awsConfig, false, time.Hour)
+	_, err = GetCredentials(t.Context(), "test-profile", profileConfigNoOIDC, awsConfig, false, time.Hour)
 	if err == nil {
 		t.Error("GetCredentials() with missing OIDC provider should return error")
 	}
 	if !strings.Contains(err.Error(), "radosgw_oidc_provider") {
 		t.Errorf("GetCredentials() should mention missing radosgw_oidc_provider, got: %v", err)
+	}
+}
+
+func TestGetCredentialsHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	_, err := GetCredentials(ctx, "test-profile", &config.ProfileConfig{}, ini.Empty(), false, time.Hour)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("GetCredentials() error = %v, want context cancellation", err)
 	}
 }
 
@@ -82,7 +93,7 @@ func TestGetCredentials_TokenAuth(t *testing.T) {
 		RadosGWOIDCAuthType: "token",
 	}
 
-	_, err := GetCredentials("test-profile", profileConfig, awsConfig, false, time.Hour)
+	_, err := GetCredentials(t.Context(), "test-profile", profileConfig, awsConfig, false, time.Hour)
 	if err == nil {
 		t.Error("GetCredentials() with token auth but no token should return error")
 	}
@@ -104,7 +115,7 @@ func TestGetCredentials_UnsupportedAuthType(t *testing.T) {
 		RadosGWOIDCAuthType: "unsupported",
 	}
 
-	_, err := GetCredentials("test-profile", profileConfig, awsConfig, false, time.Hour)
+	_, err := GetCredentials(t.Context(), "test-profile", profileConfig, awsConfig, false, time.Hour)
 	if err == nil {
 		t.Error("GetCredentials() with unsupported auth type should return error")
 	}
@@ -158,7 +169,7 @@ func TestGetCredentials_SSLVerifyParsing(t *testing.T) {
 				RadosGWSSLVerify:    tt.sslVerify,
 			}
 
-			_, err := GetCredentials("test-profile", profileConfig, awsConfig, false, time.Hour)
+			_, err := GetCredentials(t.Context(), "test-profile", profileConfig, awsConfig, false, time.Hour)
 			if err == nil {
 				t.Fatal("GetCredentials() expected an error")
 			}
@@ -204,7 +215,7 @@ func TestGetCredentials_DefaultAuthType(t *testing.T) {
 		RadosGWOIDCClientID: "test-client",
 	}
 
-	_, err := GetCredentials("test-profile", profileConfig, awsConfig, false, time.Hour)
+	_, err := GetCredentials(t.Context(), "test-profile", profileConfig, awsConfig, false, time.Hour)
 	if err == nil {
 		t.Fatal("GetCredentials() expected an error from the test server")
 	}
@@ -228,7 +239,7 @@ func TestGetCredentials_InvalidPKCEMethod(t *testing.T) {
 		RadosGWOIDCPKCEMethod: "invalid",
 	}
 
-	_, err := GetCredentials("test-profile", profileConfig, ini.Empty(), false, time.Hour)
+	_, err := GetCredentials(t.Context(), "test-profile", profileConfig, ini.Empty(), false, time.Hour)
 	if err == nil {
 		t.Fatal("GetCredentials() expected an error")
 	}
@@ -266,7 +277,7 @@ func TestGetCredentials_DefaultScope(t *testing.T) {
 		RadosGWOIDCClientID: "test-client",
 	}
 
-	_, err := GetCredentials("test-profile", profileConfig, awsConfig, false, time.Hour)
+	_, err := GetCredentials(t.Context(), "test-profile", profileConfig, awsConfig, false, time.Hour)
 	if err == nil {
 		t.Fatal("GetCredentials() expected an error from the test server")
 	}
@@ -318,7 +329,7 @@ source_profile = base
 		t.Fatalf("GetProfileConfig() error = %v", err)
 	}
 
-	result, err := GetCredentials("derived", profileConfig, awsConfig, false, time.Hour)
+	result, err := GetCredentials(t.Context(), "derived", profileConfig, awsConfig, false, time.Hour)
 	if err != nil {
 		t.Fatalf("GetCredentials() error = %v", err)
 	}
@@ -371,12 +382,12 @@ func TestGetCredentials_AuthFlows(t *testing.T) {
 
 			switch tt.resolvedAuthType {
 			case "device":
-				dependencies.authenticateDevice = func(providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
+				dependencies.authenticateDevice = func(_ context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
 					assertAuthenticationArguments(t, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode)
 					return "device-token", nil
 				}
 			case "browser":
-				dependencies.authenticateBrowser = func(providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
+				dependencies.authenticateBrowser = func(_ context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
 					assertAuthenticationArguments(t, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode)
 					return "browser-token", nil
 				}
@@ -390,7 +401,7 @@ func TestGetCredentials_AuthFlows(t *testing.T) {
 				}
 			}
 
-			dependencies.assumeRole = func(endpointURL, roleARN, accessToken, sessionName string, sslVerify bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
+			dependencies.assumeRole = func(_ context.Context, endpointURL, roleARN, accessToken, sessionName string, sslVerify bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
 				if endpointURL != profileConfig.EndpointURL {
 					t.Errorf("assumeRole() endpoint = %q, want %q", endpointURL, profileConfig.EndpointURL)
 				}
@@ -415,7 +426,7 @@ func TestGetCredentials_AuthFlows(t *testing.T) {
 				}, nil
 			}
 
-			result, err := getCredentials("test-profile", profileConfig, ini.Empty(), true, 2*time.Hour, dependencies)
+			result, err := getCredentials(t.Context(), "test-profile", profileConfig, ini.Empty(), true, 2*time.Hour, dependencies)
 			if err != nil {
 				t.Fatalf("getCredentials() error = %v", err)
 			}
@@ -468,7 +479,7 @@ func TestGetCredentials_SourceProfile(t *testing.T) {
 		t.Fatal("now() must not be called when a custom session name is configured")
 		return time.Time{}
 	}
-	dependencies.assumeRole = func(endpointURL, roleARN, accessToken, sessionName string, sslVerify bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
+	dependencies.assumeRole = func(_ context.Context, endpointURL, roleARN, accessToken, sessionName string, sslVerify bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
 		if endpointURL != sourceConfig.EndpointURL || roleARN != profileConfig.RoleArn || accessToken != "test-token" {
 			t.Error("assumeRole() received unexpected role parameters")
 		}
@@ -481,7 +492,7 @@ func TestGetCredentials_SourceProfile(t *testing.T) {
 		return &config.AssumeRoleResult{}, nil
 	}
 
-	result, err := getCredentials("derived", profileConfig, awsConfig, true, time.Hour, dependencies)
+	result, err := getCredentials(t.Context(), "derived", profileConfig, awsConfig, true, time.Hour, dependencies)
 	if err != nil {
 		t.Fatalf("getCredentials() error = %v", err)
 	}
@@ -518,7 +529,7 @@ func TestGetCredentials_DependencyErrors(t *testing.T) {
 			name:     "device authentication",
 			authType: "device",
 			configure: func(dependencies *credentialDependencies) {
-				dependencies.authenticateDevice = func(string, string, string, string, bool, bool) (string, error) {
+				dependencies.authenticateDevice = func(context.Context, string, string, string, string, bool, bool) (string, error) {
 					return "", errors.New("device failure")
 				}
 			},
@@ -528,7 +539,7 @@ func TestGetCredentials_DependencyErrors(t *testing.T) {
 			name:     "browser authentication",
 			authType: "browser",
 			configure: func(dependencies *credentialDependencies) {
-				dependencies.authenticateBrowser = func(string, string, string, string, bool, bool) (string, error) {
+				dependencies.authenticateBrowser = func(context.Context, string, string, string, string, bool, bool) (string, error) {
 					return "", errors.New("browser failure")
 				}
 			},
@@ -539,7 +550,7 @@ func TestGetCredentials_DependencyErrors(t *testing.T) {
 			authType: "token",
 			configure: func(dependencies *credentialDependencies) {
 				dependencies.getenv = func(string) string { return "test-token" }
-				dependencies.assumeRole = func(string, string, string, string, bool, time.Duration) (*config.AssumeRoleResult, error) {
+				dependencies.assumeRole = func(context.Context, string, string, string, string, bool, time.Duration) (*config.AssumeRoleResult, error) {
 					return nil, errors.New("STS failure")
 				}
 			},
@@ -559,7 +570,7 @@ func TestGetCredentials_DependencyErrors(t *testing.T) {
 			}
 			tt.configure(&dependencies)
 
-			_, err := getCredentials("test-profile", profileConfig, ini.Empty(), false, time.Hour, dependencies)
+			_, err := getCredentials(t.Context(), "test-profile", profileConfig, ini.Empty(), false, time.Hour, dependencies)
 			if err == nil {
 				t.Fatal("getCredentials() expected an error")
 			}
@@ -580,7 +591,7 @@ func TestGetCredentials_SourceProfileError(t *testing.T) {
 		SourceProfile: "base",
 	}
 
-	_, err := getCredentials("derived", profileConfig, ini.Empty(), false, time.Hour, dependencies)
+	_, err := getCredentials(t.Context(), "derived", profileConfig, ini.Empty(), false, time.Hour, dependencies)
 	if err == nil || !strings.Contains(err.Error(), "source profile failure") {
 		t.Errorf("getCredentials() error = %v, want source profile failure", err)
 	}
@@ -601,15 +612,15 @@ func newTestCredentialDependencies(t *testing.T, stderr *bytes.Buffer) credentia
 			t.Fatal("unexpected resolveSourceProfile() call")
 			return nil, nil
 		},
-		authenticateDevice: func(string, string, string, string, bool, bool) (string, error) {
+		authenticateDevice: func(context.Context, string, string, string, string, bool, bool) (string, error) {
 			t.Fatal("unexpected authenticateDevice() call")
 			return "", nil
 		},
-		authenticateBrowser: func(string, string, string, string, bool, bool) (string, error) {
+		authenticateBrowser: func(context.Context, string, string, string, string, bool, bool) (string, error) {
 			t.Fatal("unexpected authenticateBrowser() call")
 			return "", nil
 		},
-		assumeRole: func(string, string, string, string, bool, time.Duration) (*config.AssumeRoleResult, error) {
+		assumeRole: func(context.Context, string, string, string, string, bool, time.Duration) (*config.AssumeRoleResult, error) {
 			t.Fatal("unexpected assumeRole() call")
 			return nil, nil
 		},

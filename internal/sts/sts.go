@@ -45,11 +45,11 @@ func ValidateSessionName(name string) error {
 }
 
 // AssumeRoleWithWebIdentity performs STS AssumeRoleWithWebIdentity operation
-func AssumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessionName string, sslVerify bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
-	return assumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessionName, sslVerify, sessionDuration, STSRequestTimeout)
+func AssumeRoleWithWebIdentity(ctx context.Context, endpointURL, roleArn, webIdentityToken, roleSessionName string, sslVerify bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
+	return assumeRoleWithWebIdentity(ctx, endpointURL, roleArn, webIdentityToken, roleSessionName, sslVerify, sessionDuration, STSRequestTimeout)
 }
 
-func assumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessionName string, sslVerify bool, sessionDuration, requestTimeout time.Duration) (*config.AssumeRoleResult, error) {
+func assumeRoleWithWebIdentity(ctx context.Context, endpointURL, roleArn, webIdentityToken, roleSessionName string, sslVerify bool, sessionDuration, requestTimeout time.Duration) (*config.AssumeRoleResult, error) {
 	// Create STS client with anonymous credentials
 	cfg := aws.Config{
 		Credentials: aws.AnonymousCredentials{},
@@ -69,7 +69,7 @@ func assumeRoleWithWebIdentity(endpointURL, roleArn, webIdentityToken, roleSessi
 		WebIdentityToken: aws.String(webIdentityToken),
 	}
 
-	requestContext, cancelRequest := context.WithTimeout(context.Background(), requestTimeout)
+	requestContext, cancelRequest := context.WithTimeout(ctx, requestTimeout)
 	defer cancelRequest()
 
 	result, err := stsClient.AssumeRoleWithWebIdentity(requestContext, input)

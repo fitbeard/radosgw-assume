@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -77,14 +78,18 @@ type oidcProviderMetadata struct {
 	TokenEndpoint               string `json:"token_endpoint"`
 }
 
-func discoverOIDCEndpoints(client *http.Client, providerURL string) (oidcEndpoints, error) {
+func discoverOIDCEndpoints(ctx context.Context, client *http.Client, providerURL string) (oidcEndpoints, error) {
 	issuer, issuerScheme, err := normalizeOIDCIssuer(providerURL)
 	if err != nil {
 		return oidcEndpoints{}, err
 	}
 
 	discoveryURL := issuer + "/.well-known/openid-configuration"
-	response, err := client.Get(discoveryURL)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
+	if err != nil {
+		return oidcEndpoints{}, fmt.Errorf("failed to create OIDC discovery request: %w", err)
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return oidcEndpoints{}, fmt.Errorf("OIDC discovery request failed: %w", err)
 	}
@@ -129,6 +134,15 @@ func discoverOIDCEndpoints(client *http.Client, providerURL string) (oidcEndpoin
 	}
 
 	return endpoints, nil
+}
+
+func postOIDCForm(ctx context.Context, client *http.Client, endpoint string, data url.Values) (*http.Response, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return client.Do(request)
 }
 
 func normalizeOIDCIssuer(providerURL string) (string, string, error) {

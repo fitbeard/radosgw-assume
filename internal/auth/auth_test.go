@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -154,18 +155,21 @@ func TestAuthenticateDeviceFlow(t *testing.T) {
 				return server.Client()
 			}
 			dependencies.now = func() time.Time { return currentTime }
-			dependencies.sleep = func(duration time.Duration) { currentTime = currentTime.Add(duration) }
+			dependencies.sleep = func(_ context.Context, duration time.Duration) error {
+				currentTime = currentTime.Add(duration)
+				return nil
+			}
 			dependencies.newProgress = func() deviceFlowProgress { return &testDeviceFlowProgress{} }
 
-			token, err := authenticateDeviceFlow(
+			token, err := authenticateDeviceFlow(t.Context(),
 				server.URL+"/",
 				"test-client",
 				"openid profile",
 				pkceMethod,
 				true,
 				false,
-				dependencies,
-			)
+				dependencies)
+
 			if err != nil {
 				t.Fatalf("AuthenticateDeviceFlow() error = %v", err)
 			}
@@ -305,4 +309,25 @@ func TestAuthFunctionsExist(t *testing.T) {
 
 	// If we reach here, both functions exist with expected signatures
 	t.Log("Auth functions exist and have correct signatures")
+}
+
+func TestAuthenticationFlowsHonorPreCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	tests := []struct {
+		name         string
+		authenticate func(context.Context, string, string, string, string, bool, bool) (string, error)
+	}{
+		{name: "device", authenticate: AuthenticateDeviceFlow},
+		{name: "browser", authenticate: AuthenticateBrowserFlow},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := test.authenticate(ctx, "https://oidc.example.com", "test-client", "openid", PKCEMethodS256, true, false)
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("authentication error = %v, want context cancellation", err)
+			}
+		})
+	}
 }

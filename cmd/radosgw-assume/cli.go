@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -30,8 +31,8 @@ type cliRunner struct {
 	getProfiles           func(*ini.File) []string
 	getProfile            func(string, *ini.File) (*config.ProfileConfig, error)
 	selectProfile         func([]string) (string, error)
-	getCredentials        func(string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error)
-	getProcessCredentials func(string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer, bool) (*config.AssumeRoleResult, error)
+	getCredentials        func(context.Context, string, *config.ProfileConfig, *ini.File, bool, time.Duration) (*config.AssumeRoleResult, error)
+	getProcessCredentials func(context.Context, string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer, bool) (*config.AssumeRoleResult, error)
 	inspectCache          func() (credentialcache.Summary, error)
 	clearCache            func() (credentialcache.ClearResult, error)
 	openTerminal          func() (io.WriteCloser, error)
@@ -60,6 +61,10 @@ func newCLIRunner(stdout, stderr io.Writer) *cliRunner {
 }
 
 func (r *cliRunner) run(program string, args []string) int {
+	return r.runContext(context.Background(), program, args)
+}
+
+func (r *cliRunner) runContext(ctx context.Context, program string, args []string) int {
 	options, err := parseCLIArguments(program, args)
 	if err != nil {
 		_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
@@ -152,11 +157,14 @@ func (r *cliRunner) run(program string, args []string) int {
 			defer func() { _ = terminal.Close() }()
 			authenticationOutput = terminal
 		}
-		result, err = r.getProcessCredentials(profileName, profileConfig, awsConfig, options.verbose, options.sessionDuration, authenticationOutput, options.noCache)
+		result, err = r.getProcessCredentials(ctx, profileName, profileConfig, awsConfig, options.verbose, options.sessionDuration, authenticationOutput, options.noCache)
 	} else {
-		result, err = r.getCredentials(profileName, profileConfig, awsConfig, options.verbose, options.sessionDuration)
+		result, err = r.getCredentials(ctx, profileName, profileConfig, awsConfig, options.verbose, options.sessionDuration)
 	}
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return 130
+		}
 		_, _ = fmt.Fprintf(r.stderr, "Error: %v\n", err)
 		return 1
 	}

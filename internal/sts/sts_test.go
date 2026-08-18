@@ -62,14 +62,14 @@ func TestAssumeRoleWithWebIdentity(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	result, err := AssumeRoleWithWebIdentity(
+	result, err := AssumeRoleWithWebIdentity(t.Context(),
 		server.URL,
 		"arn:aws:iam::123456789012:role/TestRole",
 		"test-token",
 		"test-session",
 		true,
-		time.Hour,
-	)
+		time.Hour)
+
 	if err != nil {
 		t.Fatalf("AssumeRoleWithWebIdentity() error = %v", err)
 	}
@@ -91,20 +91,38 @@ func TestAssumeRoleWithWebIdentityTimeout(t *testing.T) {
 		server.Close()
 	})
 
-	_, err := assumeRoleWithWebIdentity(
+	_, err := assumeRoleWithWebIdentity(t.Context(),
 		server.URL,
 		"arn:aws:iam::123456789012:role/TestRole",
 		"test-token",
 		"test-session",
 		true,
 		time.Hour,
-		25*time.Millisecond,
-	)
+		25*time.Millisecond)
+
 	if err == nil {
 		t.Fatal("assumeRoleWithWebIdentity() expected a timeout error")
 	}
 	if !strings.Contains(err.Error(), "connection timeout") {
 		t.Errorf("assumeRoleWithWebIdentity() error = %v, want connection timeout", err)
+	}
+}
+
+func TestAssumeRoleWithWebIdentityHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	_, err := AssumeRoleWithWebIdentity(
+		ctx,
+		"https://storage.example.com",
+		"arn:aws:iam::123456789012:role/TestRole",
+		"test-token",
+		"test-session",
+		true,
+		time.Hour,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("AssumeRoleWithWebIdentity() error = %v, want context cancellation", err)
 	}
 }
 

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -28,9 +29,10 @@ func (clock *testDeviceFlowClock) now() time.Time {
 	return clock.current
 }
 
-func (clock *testDeviceFlowClock) sleep(duration time.Duration) {
+func (clock *testDeviceFlowClock) sleep(_ context.Context, duration time.Duration) error {
 	clock.sleeps = append(clock.sleeps, duration)
 	clock.current = clock.current.Add(duration)
+	return nil
 }
 
 type testDeviceFlowProgress struct {
@@ -62,15 +64,15 @@ func TestAuthenticateDeviceFlowPolling(t *testing.T) {
 	var stderr bytes.Buffer
 	dependencies, clock, progress := newTestDeviceFlowDependencies(&stderr, client)
 
-	token, err := authenticateDeviceFlow(
+	token, err := authenticateDeviceFlow(t.Context(),
 		"https://oidc.example.com",
 		"test-client",
 		"openid profile",
 		PKCEMethodS256,
 		true,
 		true,
-		dependencies,
-	)
+		dependencies)
+
 	if err != nil {
 		t.Fatalf("authenticateDeviceFlow() error = %v", err)
 	}
@@ -115,15 +117,15 @@ func TestAuthenticateDeviceFlowUsesDefaultPollingInterval(t *testing.T) {
 	)
 	dependencies, clock, _ := newTestDeviceFlowDependencies(io.Discard, client)
 
-	_, err := authenticateDeviceFlow(
+	_, err := authenticateDeviceFlow(t.Context(),
 		"https://oidc.example.com",
 		"test-client",
 		"openid",
 		PKCEMethodS256,
 		true,
 		false,
-		dependencies,
-	)
+		dependencies)
+
 	if err != nil {
 		t.Fatalf("authenticateDeviceFlow() error = %v", err)
 	}
@@ -152,7 +154,7 @@ func TestAuthenticateDeviceFlowErrors(t *testing.T) {
 		{
 			name: "OIDC discovery",
 			configure: func(dependencies *deviceFlowDependencies, _ *testDeviceFlowClock) {
-				dependencies.discoverEndpoints = func(*http.Client, string) (oidcEndpoints, error) {
+				dependencies.discoverEndpoints = func(context.Context, *http.Client, string) (oidcEndpoints, error) {
 					return oidcEndpoints{}, errors.New("discovery failed")
 				}
 			},
@@ -161,7 +163,7 @@ func TestAuthenticateDeviceFlowErrors(t *testing.T) {
 		{
 			name: "missing device endpoint",
 			configure: func(dependencies *deviceFlowDependencies, _ *testDeviceFlowClock) {
-				dependencies.discoverEndpoints = func(*http.Client, string) (oidcEndpoints, error) {
+				dependencies.discoverEndpoints = func(context.Context, *http.Client, string) (oidcEndpoints, error) {
 					return oidcEndpoints{token: "https://oidc.example.com/token"}, nil
 				}
 			},
@@ -334,15 +336,15 @@ func TestAuthenticateDeviceFlowErrors(t *testing.T) {
 				test.configure(&dependencies, clock)
 			}
 
-			_, err := authenticateDeviceFlow(
+			_, err := authenticateDeviceFlow(t.Context(),
 				"https://oidc.example.com",
 				"test-client",
 				"openid",
 				PKCEMethodS256,
 				true,
 				false,
-				dependencies,
-			)
+				dependencies)
+
 			if err == nil || !strings.Contains(err.Error(), test.wantContain) {
 				t.Errorf("authenticateDeviceFlow() error = %v, want containing %q", err, test.wantContain)
 			}
@@ -350,6 +352,48 @@ func TestAuthenticateDeviceFlowErrors(t *testing.T) {
 				t.Errorf("progress stopped quietly = %v, want %v", progress.stoppedQuiet, test.wantQuietStop)
 			}
 		})
+	}
+}
+
+func TestAuthenticateDeviceFlowCancelsPollingWait(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	dependencies, _, progress := newTestDeviceFlowDependencies(
+		io.Discard,
+		newDeviceFlowHTTPClient(testDeviceHTTPResponse{status: http.StatusOK, body: validDeviceResponse}),
+	)
+	dependencies.sleep = func(ctx context.Context, _ time.Duration) error {
+		cancel()
+		return sleepWithContext(ctx, time.Hour)
+	}
+
+	_, err := authenticateDeviceFlow(
+		ctx,
+		"https://oidc.example.com",
+		"test-client",
+		"openid",
+		PKCEMethodS256,
+		true,
+		false,
+		dependencies,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("authenticateDeviceFlow() error = %v, want context cancellation", err)
+	}
+	if !progress.stoppedQuiet {
+		t.Error("authentication progress was not stopped quietly after cancellation")
+	}
+}
+
+func TestSleepWithContext(t *testing.T) {
+	if err := sleepWithContext(t.Context(), 0); err != nil {
+		t.Errorf("sleepWithContext() completed wait error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if err := sleepWithContext(ctx, time.Hour); !errors.Is(err, context.Canceled) {
+		t.Errorf("sleepWithContext() error = %v, want context cancellation", err)
 	}
 }
 
@@ -363,12 +407,12 @@ func TestRequestDeviceAuthorizationClosesResponseBody(t *testing.T) {
 		}, nil
 	})}
 
-	response, err := requestDeviceAuthorization(
+	response, err := requestDeviceAuthorization(t.Context(),
 		client,
 		"https://oidc.example.com/protocol/openid-connect/auth/device",
 		url.Values{"client_id": {"test-client"}},
-		"https://oidc.example.com",
-	)
+		"https://oidc.example.com")
+
 	if err != nil {
 		t.Fatalf("requestDeviceAuthorization() error = %v", err)
 	}
@@ -431,7 +475,7 @@ func newTestDeviceFlowDependencies(stderr io.Writer, client *http.Client) (devic
 			return testDeviceCodeVerifier, challenge, method, nil
 		},
 		newHTTPClient: func(bool) *http.Client { return client },
-		discoverEndpoints: func(*http.Client, string) (oidcEndpoints, error) {
+		discoverEndpoints: func(context.Context, *http.Client, string) (oidcEndpoints, error) {
 			return oidcEndpoints{
 				deviceAuthorization: "https://oidc.example.com/device",
 				token:               "https://oidc.example.com/token",
