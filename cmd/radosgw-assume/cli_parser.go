@@ -27,6 +27,7 @@ type cliOptions struct {
 	profileName     string
 	verbose         bool
 	useEnv          bool
+	showCredentials bool
 	sessionDuration time.Duration
 	sessionName     string
 	noPrompt        bool
@@ -180,6 +181,8 @@ func parseSharedOption(program string, args []string, index *int, options *cliOp
 		options.noCache = true
 	case "-e", "--env":
 		options.useEnv = true
+	case "--show-credentials":
+		options.showCredentials = true
 	case "-p", "--profile":
 		if *index+1 >= len(args) || strings.HasPrefix(args[*index+1], "-") {
 			return false, true, fmt.Errorf("profile flag requires a value\nUsage: %s -p PROFILE", program)
@@ -237,6 +240,9 @@ func validateConfigurationSource(options cliOptions) error {
 }
 
 func validateScopedOptions(options cliOptions) error {
+	if options.showCredentials && options.action != actionRun {
+		return fmt.Errorf("--show-credentials can only be used with the default export action")
+	}
 	if options.noPrompt && options.action != actionShell {
 		return fmt.Errorf("--no-prompt can only be used with the shell command")
 	}

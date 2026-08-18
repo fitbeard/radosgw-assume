@@ -129,6 +129,7 @@ Options:
                             Formats: '3600' (seconds), '60m' (minutes), '1h' (hours)
   -s, --session NAME        Session name (default: radosgw-assume-TIMESTAMP)
                             Only alphanumeric characters and dashes allowed
+      --show-credentials    Allow credential exports to be printed to a terminal
       --no-prompt           Keep the original prompt in an authenticated shell
       --no-cache            Bypass the credential-process cache
 
@@ -141,13 +142,15 @@ Commands:
   version                   Show version information
 
 Examples:
-  radosgw-assume                                         # Interactive selection, clean output
-  radosgw-assume -p myprofile                            # Use specific profile, clean output
-  radosgw-assume --env                                   # Use environment variables
-  radosgw-assume -d 2h -p myprofile                      # 2-hour session duration
-  radosgw-assume -d 30m -p myprofile                     # 30-minute session duration
-  radosgw-assume -d 15m -p myprofile                     # 15-minute session duration (minimum)
-  radosgw-assume -s my-session -p myprofile              # Custom session name
+  eval "$(radosgw-assume)"                               # Select and export a profile
+  eval "$(radosgw-assume -p myprofile)"                  # Export a specific profile
+  eval "$(radosgw-assume --env)"                         # Export environment configuration
+  eval "$(radosgw-assume -d 2h -p myprofile)"            # Export a 2-hour session
+  eval "$(radosgw-assume -s my-session -p myprofile)"    # Export with a custom session name
+  source <(radosgw-assume)                               # Select and export with source
+  source <(radosgw-assume -p myprofile)                  # Export a profile with source
+  radosgw-assume --show-credentials -p myprofile         # Deliberately display credentials
+  radosgw-assume --show-credentials --env                # Display environment-configured credentials
   radosgw-assume exec -- aws s3 ls                       # Select profile, then run once
   radosgw-assume exec -p myprofile -- aws s3 ls          # Use specific profile, then run once
   radosgw-assume shell                                   # Select profile, then start a shell
@@ -156,11 +159,11 @@ Examples:
   radosgw-assume credential-process -d 12h -p myprofile  # Request and cache a 12-hour session
   radosgw-assume cache status                            # Inspect cache without exposing credentials
   radosgw-assume cache clear                             # Remove all cached credentials
-  eval "$(radosgw-assume)"                               # Interactive export with eval
-  eval "$(radosgw-assume -p myprofile)"                  # Direct profile export with eval
-  source <(radosgw-assume)                               # Interactive export with source
-  source <(radosgw-assume -p myprofile)                  # Direct profile export with source
-  radosgw-assume --verbose                               # Verbose output with detailed info
+  eval "$(radosgw-assume --verbose)"                     # Export with detailed diagnostics
+
+Security:
+  Credential exports are refused when stdout is a terminal unless --show-credentials is set.
+  Capture them with eval/source, or avoid exporting with exec/shell.
 
 Environment Variables (when using -e/--env):
   RADOSGW_OIDC_PROVIDER      - OIDC issuer URL (required, except for token auth)
@@ -186,6 +189,8 @@ Use either `eval` or `source` to install the generated credential exports in the
 eval "$(radosgw-assume)"
 source <(radosgw-assume)
 ```
+
+For safety, a direct terminal invocation such as `radosgw-assume -p myprofile` exits before authentication instead of displaying credentials in terminal scrollback. The guard applies only when stdout is a terminal; `eval`, `source`, and explicit redirection continue to receive the generated exports. To deliberately display credentials, opt in explicitly with `radosgw-assume --show-credentials -p myprofile` or `radosgw-assume --show-credentials --env`.
 
 Both forms support interactive profile selection and all regular options. Select a profile directly when interaction is not needed:
 
