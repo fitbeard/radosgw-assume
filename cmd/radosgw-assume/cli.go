@@ -11,40 +11,13 @@ import (
 	"github.com/fitbeard/radosgw-assume/internal/config"
 	"github.com/fitbeard/radosgw-assume/internal/credentialcache"
 	"github.com/fitbeard/radosgw-assume/internal/credentials"
-	"github.com/fitbeard/radosgw-assume/internal/sts"
 	"github.com/fitbeard/radosgw-assume/internal/ui"
 	"github.com/fitbeard/radosgw-assume/internal/version"
-	"github.com/fitbeard/radosgw-assume/pkg/duration"
 
 	"gopkg.in/ini.v1"
 )
 
-type cliAction int
-
-const (
-	actionRun cliAction = iota
-	actionHelp
-	actionVersion
-	actionExec
-	actionShell
-	actionCredentialProcess
-	actionCacheStatus
-	actionCacheClear
-)
-
 const foregroundExportEnvironment = "RADOSGW_ASSUME_FOREGROUND_EXPORT"
-
-type cliOptions struct {
-	action          cliAction
-	profileName     string
-	verbose         bool
-	useEnv          bool
-	sessionDuration time.Duration
-	sessionName     string
-	noPrompt        bool
-	noCache         bool
-	command         []string
-}
 
 type cliRunner struct {
 	stdout io.Writer
@@ -254,155 +227,6 @@ func fprintForegroundExport(w io.Writer, program string, args []string) {
 		command = append(command, ui.ShellQuote(arg))
 	}
 	_, _ = fmt.Fprintf(w, "eval \"$(%s=1 %s)\"\n", foregroundExportEnvironment, strings.Join(command, " "))
-}
-
-func parseCLIArguments(program string, args []string) (cliOptions, error) {
-	options := cliOptions{sessionDuration: time.Hour}
-	if len(args) > 0 && args[0] == "cache" {
-		return parseCacheArguments(program, args[1:])
-	}
-	if len(args) == 1 && args[0] == "version" {
-		options.action = actionVersion
-		return options, nil
-	}
-	startIndex := 0
-	if len(args) > 0 {
-		switch args[0] {
-		case "exec":
-			options.action = actionExec
-			startIndex = 1
-		case "shell":
-			options.action = actionShell
-			startIndex = 1
-		case "credential-process":
-			options.action = actionCredentialProcess
-			startIndex = 1
-		}
-	}
-
-	for i := startIndex; i < len(args); i++ {
-		arg := args[i]
-
-		switch arg {
-		case "--":
-			if options.action != actionExec {
-				return cliOptions{}, fmt.Errorf("unexpected argument '--'\nUse -h or --help for usage information")
-			}
-			if i+1 >= len(args) {
-				return cliOptions{}, fmt.Errorf("exec requires a command after '--'\nUsage: %s exec [OPTIONS] -- COMMAND [ARG...]", program)
-			}
-			options.command = append([]string(nil), args[i+1:]...)
-			i = len(args)
-		case "-h", "--help":
-			options.action = actionHelp
-			return options, nil
-		case "-v", "--verbose":
-			options.verbose = true
-		case "--no-prompt":
-			options.noPrompt = true
-		case "--no-cache":
-			options.noCache = true
-		case "-e", "--env":
-			options.useEnv = true
-		case "-p", "--profile":
-			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-				return cliOptions{}, fmt.Errorf("profile flag requires a value\nUsage: %s -p PROFILE", program)
-			}
-			if options.profileName != "" {
-				return cliOptions{}, fmt.Errorf("profile flag specified more than once\nUse -h or --help for usage information")
-			}
-			i++
-			options.profileName = args[i]
-			if options.profileName == "" {
-				return cliOptions{}, fmt.Errorf("profile name cannot be empty")
-			}
-		case "-d", "--duration":
-			if i+1 >= len(args) {
-				return cliOptions{}, fmt.Errorf("duration flag requires a value\nUsage: %s -d 1h [-p PROFILE]", program)
-			}
-			i++
-			durationValue := args[i]
-			sessionDuration, err := duration.Parse(durationValue)
-			if err != nil {
-				return cliOptions{}, fmt.Errorf("invalid duration '%s': %v\nValid formats: '3600' (seconds), '60m' (minutes), '1h' (hours)", durationValue, err)
-			}
-			if err := duration.Validate(sessionDuration); err != nil {
-				return cliOptions{}, err
-			}
-			options.sessionDuration = sessionDuration
-		case "-s", "--session":
-			if i+1 >= len(args) {
-				return cliOptions{}, fmt.Errorf("session name flag requires a value\nUsage: %s -s my-session [-p PROFILE]", program)
-			}
-			i++
-			sessionName := args[i]
-			if err := sts.ValidateSessionName(sessionName); err != nil {
-				return cliOptions{}, fmt.Errorf("invalid session name '%s': %v", sessionName, err)
-			}
-			options.sessionName = sessionName
-		default:
-			if strings.HasPrefix(arg, "-") {
-				return cliOptions{}, fmt.Errorf("unknown flag '%s'\nUse -h or --help for usage information", arg)
-			}
-			if options.action == actionExec {
-				return cliOptions{}, fmt.Errorf("unexpected exec argument '%s': command must follow '--'\nUsage: %s exec [OPTIONS] -- COMMAND [ARG...]", arg, program)
-			}
-			if options.action == actionShell {
-				return cliOptions{}, fmt.Errorf("unexpected shell argument '%s'\nUsage: %s shell [OPTIONS]", arg, program)
-			}
-			if options.action == actionCredentialProcess {
-				return cliOptions{}, fmt.Errorf("unexpected credential-process argument '%s'\nUsage: %s credential-process (-p PROFILE | --env)", arg, program)
-			}
-			return cliOptions{}, fmt.Errorf("unexpected argument '%s': select a profile with -p or --profile\nUse -h or --help for usage information", arg)
-		}
-	}
-	if options.action == actionExec && len(options.command) == 0 {
-		return cliOptions{}, fmt.Errorf("exec requires a command after '--'\nUsage: %s exec [OPTIONS] -- COMMAND [ARG...]", program)
-	}
-	if options.useEnv && options.profileName != "" {
-		return cliOptions{}, fmt.Errorf("--env and --profile cannot be used together")
-	}
-	if options.action == actionCredentialProcess && options.profileName == "" && !options.useEnv {
-		return cliOptions{}, fmt.Errorf("credential-process requires -p/--profile or --env\nUsage: %s credential-process (-p PROFILE | --env)", program)
-	}
-	if options.noPrompt && options.action != actionShell {
-		return cliOptions{}, fmt.Errorf("--no-prompt can only be used with the shell command")
-	}
-	if options.noCache && options.action != actionCredentialProcess {
-		return cliOptions{}, fmt.Errorf("--no-cache can only be used with the credential-process command")
-	}
-
-	return options, nil
-}
-
-func parseCacheArguments(program string, args []string) (cliOptions, error) {
-	options := cliOptions{sessionDuration: time.Hour}
-	if len(args) == 1 {
-		switch args[0] {
-		case "status":
-			options.action = actionCacheStatus
-			return options, nil
-		case "clear":
-			options.action = actionCacheClear
-			return options, nil
-		case "-h", "--help":
-			options.action = actionHelp
-			return options, nil
-		}
-	}
-	if len(args) == 2 && (args[1] == "-h" || args[1] == "--help") {
-		if args[0] == "status" || args[0] == "clear" {
-			options.action = actionHelp
-			return options, nil
-		}
-	}
-	if len(args) == 0 {
-		return cliOptions{}, fmt.Errorf("cache requires 'status' or 'clear'\nUsage: %s cache <status|clear>", program)
-	}
-	if args[0] != "status" && args[0] != "clear" {
-		return cliOptions{}, fmt.Errorf("unknown cache command '%s'\nUsage: %s cache <status|clear>", args[0], program)
-	}
-	return cliOptions{}, fmt.Errorf("unexpected cache argument '%s'\nUsage: %s cache %s", args[1], program, args[0])
 }
 
 func fprintCacheStatus(w io.Writer, summary credentialcache.Summary) {
