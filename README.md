@@ -117,6 +117,7 @@ Usage: radosgw-assume [OPTIONS]
        radosgw-assume exec [OPTIONS] -- COMMAND [ARG...]
        radosgw-assume shell [OPTIONS]
        radosgw-assume credential-process (-p PROFILE | --env) [OPTIONS]
+       radosgw-assume cache <status|clear>
        radosgw-assume (interactive profile selection)
 
 Options:
@@ -135,6 +136,8 @@ Commands:
   exec                      Run a command with temporary credentials
   shell                     Start an interactive shell with temporary credentials
   credential-process        Emit AWS process credential provider JSON
+  cache status              Show a non-secret credential cache summary
+  cache clear               Remove cached temporary credentials
   version                   Show version information
 
 Examples:
@@ -151,6 +154,8 @@ Examples:
   radosgw-assume shell -p myprofile                     # Start a shell for a specific profile
   radosgw-assume credential-process -p myprofile        # Emit AWS credential_process JSON
   radosgw-assume credential-process -d 12h -p myprofile # Request and cache a 12-hour session
+  radosgw-assume cache status                           # Inspect cache without exposing credentials
+  radosgw-assume cache clear                            # Remove all cached credentials
   eval "$(radosgw-assume)"                              # Interactive export with eval
   eval "$(radosgw-assume -p myprofile)"                 # Direct profile export with eval
   source <(radosgw-assume)                              # Interactive export with source
@@ -231,6 +236,15 @@ It writes the AWS process credential provider JSON document to stdout. When a co
 Temporary STS credentials are cached by default in the operating system's user cache directory. Cache directories and files use `0700` and `0600` permissions, writes are atomic, and concurrent requests for the same profile are locked so they do not open multiple authentication flows. Cache entries are isolated by effective profile configuration, requested duration, and token identity for token authentication. The renewal window is 10% of the requested duration, bounded to a minimum of one minute and a maximum of 15 minutes. Use `--no-cache` to bypass both cache reads and writes.
 
 The cache is stored in `~/Library/Caches/radosgw-assume/credentials-v1` on macOS. On Linux it is stored in `$XDG_CACHE_HOME/radosgw-assume/credentials-v1`, or `~/.cache/radosgw-assume/credentials-v1` when `XDG_CACHE_HOME` is unset. The hashed `.json` files contain live temporary credentials and must not be displayed, shared, or committed.
+
+Inspect the cache without displaying profile names, keys, or credentials, or clear all cached temporary credentials:
+
+```bash
+radosgw-assume cache status
+radosgw-assume cache clear
+```
+
+Clearing the cache forces the next `credential-process` request to authenticate again. Expired, malformed, and incomplete entries are removed automatically whenever the credential cache is used. Cache inspection is read-only and reports only entry counts and the cache directory.
 
 Configure a separate AWS consumer profile. Do not add `credential_process` to the RadosGW authentication profile itself: its `role_arn` and `source_profile` keys have different meanings to AWS tooling.
 

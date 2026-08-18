@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/fitbeard/radosgw-assume/internal/config"
+	"github.com/fitbeard/radosgw-assume/internal/credentialcache"
 	"github.com/fitbeard/radosgw-assume/internal/ui"
 
 	"gopkg.in/ini.v1"
@@ -157,6 +158,26 @@ func TestParseCLIArguments(t *testing.T) {
 			args: []string{"credential-process", "--help"},
 			want: cliOptions{action: actionHelp, sessionDuration: time.Hour},
 		},
+		{
+			name: "cache status",
+			args: []string{"cache", "status"},
+			want: cliOptions{action: actionCacheStatus, sessionDuration: time.Hour},
+		},
+		{
+			name: "cache clear",
+			args: []string{"cache", "clear"},
+			want: cliOptions{action: actionCacheClear, sessionDuration: time.Hour},
+		},
+		{
+			name: "cache help",
+			args: []string{"cache", "--help"},
+			want: cliOptions{action: actionHelp, sessionDuration: time.Hour},
+		},
+		{
+			name: "cache subcommand help",
+			args: []string{"cache", "status", "--help"},
+			want: cliOptions{action: actionHelp, sessionDuration: time.Hour},
+		},
 	}
 
 	for _, tt := range tests {
@@ -206,6 +227,10 @@ func TestParseCLIArgumentsErrors(t *testing.T) {
 		{name: "credential process delimiter", args: []string{"credential-process", "--"}, wantMessage: "unexpected argument '--'"},
 		{name: "credential process prompt option", args: []string{"credential-process", "-p", "profile", "--no-prompt"}, wantMessage: "--no-prompt can only be used with the shell command"},
 		{name: "cache option without credential process", args: []string{"--profile", "profile", "--no-cache"}, wantMessage: "--no-cache can only be used with the credential-process command"},
+		{name: "cache command missing", args: []string{"cache"}, wantMessage: "cache requires 'status' or 'clear'"},
+		{name: "cache command unknown", args: []string{"cache", "prune"}, wantMessage: "unknown cache command 'prune'"},
+		{name: "cache status argument", args: []string{"cache", "status", "extra"}, wantMessage: "unexpected cache argument 'extra'"},
+		{name: "cache clear flag", args: []string{"cache", "clear", "--verbose"}, wantMessage: "unexpected cache argument '--verbose'"},
 	}
 
 	for _, tt := range tests {
@@ -216,6 +241,121 @@ func TestParseCLIArgumentsErrors(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.wantMessage) {
 				t.Errorf("parseCLIArguments() error = %q, want it to contain %q", err, tt.wantMessage)
+			}
+		})
+	}
+}
+
+func TestCLIRunnerCacheActions(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		configure  func(*cliRunner)
+		wantOutput []string
+	}{
+		{
+			name: "status",
+			args: []string{"cache", "status"},
+			configure: func(runner *cliRunner) {
+				runner.inspectCache = func() (credentialcache.Summary, error) {
+					return credentialcache.Summary{
+						Directory: "/cache/credentials-v1",
+						Valid:     2,
+						Expired:   1,
+						Invalid:   1,
+					}, nil
+				}
+			},
+			wantOutput: []string{
+				"Credential cache: /cache/credentials-v1",
+				"Entries: 4",
+				"Valid: 2",
+				"Expired: 1",
+				"Invalid: 1",
+			},
+		},
+		{
+			name: "empty status",
+			args: []string{"cache", "status"},
+			configure: func(runner *cliRunner) {
+				runner.inspectCache = func() (credentialcache.Summary, error) {
+					return credentialcache.Summary{Directory: "/cache/credentials-v1"}, nil
+				}
+			},
+			wantOutput: []string{"Credential cache: /cache/credentials-v1", "Entries: 0"},
+		},
+		{
+			name: "clear",
+			args: []string{"cache", "clear"},
+			configure: func(runner *cliRunner) {
+				runner.clearCache = func() (credentialcache.ClearResult, error) {
+					return credentialcache.ClearResult{Directory: "/cache/credentials-v1", Removed: 3}, nil
+				}
+			},
+			wantOutput: []string{"Cleared 3 credential cache entries from /cache/credentials-v1"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner, stdout, stderr := newTestCLIRunner(t)
+			test.configure(runner)
+			if exitCode := runner.run("radosgw-assume", test.args); exitCode != 0 {
+				t.Fatalf("run() exit code = %d, want 0; stderr: %s", exitCode, stderr.String())
+			}
+			for _, want := range test.wantOutput {
+				if !strings.Contains(stdout.String(), want) {
+					t.Errorf("run() output = %q, want it to contain %q", stdout.String(), want)
+				}
+			}
+			if stderr.Len() != 0 {
+				t.Errorf("run() stderr = %q, want empty", stderr.String())
+			}
+		})
+	}
+}
+
+func TestCLIRunnerCacheErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		args      []string
+		configure func(*cliRunner)
+		want      string
+	}{
+		{
+			name: "inspect",
+			args: []string{"cache", "status"},
+			configure: func(runner *cliRunner) {
+				runner.inspectCache = func() (credentialcache.Summary, error) {
+					return credentialcache.Summary{}, errors.New("inspect failure")
+				}
+			},
+			want: "Error inspecting credential cache: inspect failure",
+		},
+		{
+			name: "clear",
+			args: []string{"cache", "clear"},
+			configure: func(runner *cliRunner) {
+				runner.clearCache = func() (credentialcache.ClearResult, error) {
+					return credentialcache.ClearResult{}, errors.New("clear failure")
+				}
+			},
+			want: "Error clearing credential cache: clear failure",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner, stdout, stderr := newTestCLIRunner(t)
+			test.configure(runner)
+			if exitCode := runner.run("radosgw-assume", test.args); exitCode != 1 {
+				t.Errorf("run() exit code = %d, want 1", exitCode)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("run() stdout = %q, want empty", stdout.String())
+			}
+			if !strings.Contains(stderr.String(), test.want) {
+				t.Errorf("run() stderr = %q, want it to contain %q", stderr.String(), test.want)
 			}
 		})
 	}
@@ -905,6 +1045,14 @@ func newTestCLIRunner(t *testing.T) (*cliRunner, *bytes.Buffer, *bytes.Buffer) {
 		getProcessCredentials: func(string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer, bool) (*config.AssumeRoleResult, error) {
 			t.Fatal("unexpected getProcessCredentials() call")
 			return nil, nil
+		},
+		inspectCache: func() (credentialcache.Summary, error) {
+			t.Fatal("unexpected inspectCache() call")
+			return credentialcache.Summary{}, nil
+		},
+		clearCache: func() (credentialcache.ClearResult, error) {
+			t.Fatal("unexpected clearCache() call")
+			return credentialcache.ClearResult{}, nil
 		},
 		openTerminal: func() (io.WriteCloser, error) {
 			t.Fatal("unexpected openTerminal() call")
