@@ -16,25 +16,25 @@ import (
 func TestGetCredentials_AuthFlows(t *testing.T) {
 	tests := []struct {
 		name               string
-		authType           string
-		resolvedAuthType   string
+		authType           config.AuthType
+		resolvedAuthType   config.AuthType
 		wantVerboseMessage string
 	}{
 		{
 			name:               "default device flow",
-			resolvedAuthType:   "device",
+			resolvedAuthType:   config.AuthTypeDevice,
 			wantVerboseMessage: "# Starting device authentication flow",
 		},
 		{
 			name:               "browser flow",
-			authType:           "browser",
-			resolvedAuthType:   "browser",
+			authType:           config.AuthTypeBrowser,
+			resolvedAuthType:   config.AuthTypeBrowser,
 			wantVerboseMessage: "# Starting browser authentication flow",
 		},
 		{
 			name:               "token flow",
-			authType:           "token",
-			resolvedAuthType:   "token",
+			authType:           config.AuthTypeToken,
+			resolvedAuthType:   config.AuthTypeToken,
 			wantVerboseMessage: "# Using pre-existing OIDC token",
 		},
 	}
@@ -43,7 +43,7 @@ func TestGetCredentials_AuthFlows(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			stderr := &bytes.Buffer{}
 			dependencies := newTestCredentialDependencies(t, stderr)
-			expectedAccessToken := test.resolvedAuthType + "-token"
+			expectedAccessToken := string(test.resolvedAuthType) + "-token"
 			profileConfig := &config.ProfileConfig{
 				EndpointURL:           "https://storage.example.com",
 				RoleArn:               "arn:aws:iam::123456789012:role/TestRole",
@@ -56,17 +56,17 @@ func TestGetCredentials_AuthFlows(t *testing.T) {
 			}
 
 			switch test.resolvedAuthType {
-			case "device":
+			case config.AuthTypeDevice:
 				dependencies.authenticateDevice = func(_ context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
 					assertAuthenticationArguments(t, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode)
 					return "device-token", nil
 				}
-			case "browser":
+			case config.AuthTypeBrowser:
 				dependencies.authenticateBrowser = func(_ context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
 					assertAuthenticationArguments(t, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode)
 					return "browser-token", nil
 				}
-			case "token":
+			case config.AuthTypeToken:
 				expectedAccessToken = "environment-token"
 				dependencies.getenv = func(name string) string {
 					if name != "RADOSGW_OIDC_TOKEN" {
@@ -113,7 +113,7 @@ func TestGetCredentials_AuthFlows(t *testing.T) {
 			for _, expected := range []string{
 				"# Direct role assumption: " + profileConfig.RoleArn,
 				"# Using profile: test-profile",
-				"# Auth type: " + test.resolvedAuthType,
+				"# Auth type: " + string(test.resolvedAuthType),
 				test.wantVerboseMessage,
 				"# Session duration: 7200 seconds (2h)",
 				"# Assumed role ARN:",
@@ -122,7 +122,7 @@ func TestGetCredentials_AuthFlows(t *testing.T) {
 					t.Errorf("verbose output %q does not contain %q", verboseOutput, expected)
 				}
 			}
-			if test.resolvedAuthType == "token" && strings.Contains(verboseOutput, "# OIDC provider:") {
+			if test.resolvedAuthType == config.AuthTypeToken && strings.Contains(verboseOutput, "# OIDC provider:") {
 				t.Errorf("token verbose output unexpectedly contains OIDC provider: %q", verboseOutput)
 			}
 		})
@@ -188,13 +188,13 @@ func TestGetCredentials_SourceProfile(t *testing.T) {
 func TestGetCredentials_DependencyErrors(t *testing.T) {
 	tests := []struct {
 		name        string
-		authType    string
+		authType    config.AuthType
 		configure   func(*credentialDependencies)
 		wantMessage string
 	}{
 		{
 			name:     "missing token",
-			authType: "token",
+			authType: config.AuthTypeToken,
 			configure: func(dependencies *credentialDependencies) {
 				dependencies.getenv = func(string) string { return "" }
 			},
@@ -202,7 +202,7 @@ func TestGetCredentials_DependencyErrors(t *testing.T) {
 		},
 		{
 			name:     "device authentication",
-			authType: "device",
+			authType: config.AuthTypeDevice,
 			configure: func(dependencies *credentialDependencies) {
 				dependencies.authenticateDevice = func(context.Context, string, string, string, string, bool, bool) (string, error) {
 					return "", errors.New("device failure")
@@ -212,7 +212,7 @@ func TestGetCredentials_DependencyErrors(t *testing.T) {
 		},
 		{
 			name:     "browser authentication",
-			authType: "browser",
+			authType: config.AuthTypeBrowser,
 			configure: func(dependencies *credentialDependencies) {
 				dependencies.authenticateBrowser = func(context.Context, string, string, string, string, bool, bool) (string, error) {
 					return "", errors.New("browser failure")
@@ -222,7 +222,7 @@ func TestGetCredentials_DependencyErrors(t *testing.T) {
 		},
 		{
 			name:     "role assumption",
-			authType: "token",
+			authType: config.AuthTypeToken,
 			configure: func(dependencies *credentialDependencies) {
 				dependencies.getenv = func(string) string { return "test-token" }
 				dependencies.assumeRole = func(context.Context, string, string, string, string, bool, time.Duration) (*config.AssumeRoleResult, error) {

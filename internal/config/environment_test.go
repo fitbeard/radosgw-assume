@@ -8,10 +8,10 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 		envVars         map[string]string
 		wantErr         bool
 		wantURL         string
-		wantAuthType    string
+		wantAuthType    AuthType
 		wantScope       string
-		wantPKCEMethod  string
-		wantSSLVerify   string
+		wantPKCEMethod  PKCEMethod
+		wantSSLVerify   SSLVerification
 		wantRoleARN     string
 		wantSessionName string
 	}{

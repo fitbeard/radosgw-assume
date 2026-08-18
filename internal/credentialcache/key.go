@@ -13,19 +13,19 @@ import (
 const cacheKeyVersion = 1
 
 type cacheKeyInput struct {
-	Version           int    `json:"version"`
-	ProfileName       string `json:"profile_name"`
-	EndpointURL       string `json:"endpoint_url"`
-	OIDCProvider      string `json:"oidc_provider"`
-	OIDCClientID      string `json:"oidc_client_id"`
-	OIDCAuthType      string `json:"oidc_auth_type"`
-	OIDCScope         string `json:"oidc_scope"`
-	OIDCPKCEMethod    string `json:"oidc_pkce_method"`
-	SSLVerify         string `json:"ssl_verify"`
-	RoleARN           string `json:"role_arn"`
-	RoleSessionName   string `json:"role_session_name"`
-	SessionDuration   int64  `json:"session_duration_nanoseconds"`
-	OIDCTokenIdentity string `json:"oidc_token_identity,omitempty"`
+	Version           int                    `json:"version"`
+	ProfileName       string                 `json:"profile_name"`
+	EndpointURL       string                 `json:"endpoint_url"`
+	OIDCProvider      string                 `json:"oidc_provider"`
+	OIDCClientID      string                 `json:"oidc_client_id"`
+	OIDCAuthType      config.AuthType        `json:"oidc_auth_type"`
+	OIDCScope         string                 `json:"oidc_scope"`
+	OIDCPKCEMethod    config.PKCEMethod      `json:"oidc_pkce_method"`
+	SSLVerify         config.SSLVerification `json:"ssl_verify"`
+	RoleARN           string                 `json:"role_arn"`
+	RoleSessionName   string                 `json:"role_session_name"`
+	SessionDuration   int64                  `json:"session_duration_nanoseconds"`
+	OIDCTokenIdentity string                 `json:"oidc_token_identity,omitempty"`
 }
 
 // Key returns a stable, non-secret cache key for an effective profile.
@@ -35,7 +35,7 @@ func Key(profileName string, profileConfig *config.ProfileConfig, sessionDuratio
 	}
 
 	tokenIdentity := ""
-	if profileConfig.RadosGWOIDCAuthType == "token" {
+	if profileConfig.RadosGWOIDCAuthType == config.AuthTypeToken {
 		tokenHash := sha256.Sum256([]byte(oidcToken))
 		tokenIdentity = hex.EncodeToString(tokenHash[:])
 	}

@@ -8,7 +8,7 @@ import (
 // GetProfileConfigFromEnv creates a ProfileConfig from environment variables
 func GetProfileConfigFromEnv() (*ProfileConfig, error) {
 	// Check for token auth type first
-	authType := os.Getenv("RADOSGW_OIDC_AUTH_TYPE")
+	authType := AuthType(os.Getenv("RADOSGW_OIDC_AUTH_TYPE"))
 	endpointURL := os.Getenv("AWS_ENDPOINT_URL")
 
 	if endpointURL == "" {
@@ -16,15 +16,15 @@ func GetProfileConfigFromEnv() (*ProfileConfig, error) {
 	}
 
 	// For token auth type, only token and endpoint are required
-	if authType == "token" {
+	if authType == AuthTypeToken {
 		profileConfig := &ProfileConfig{
 			EndpointURL:         endpointURL,
-			RadosGWOIDCAuthType: "token",
+			RadosGWOIDCAuthType: AuthTypeToken,
 		}
 
 		// Optional environment variables for token auth (scope is ignored as token already has scope)
 		if sslVerify := os.Getenv("RADOSGW_SSL_VERIFY"); sslVerify != "" {
-			profileConfig.RadosGWSSLVerify = sslVerify
+			profileConfig.RadosGWSSLVerify = SSLVerification(sslVerify)
 		}
 		if roleArn := os.Getenv("RADOSGW_ROLE_ARN"); roleArn != "" {
 			profileConfig.RoleArn = roleArn
@@ -55,17 +55,17 @@ func GetProfileConfigFromEnv() (*ProfileConfig, error) {
 	}
 
 	// Optional environment variables
-	if authType := os.Getenv("RADOSGW_OIDC_AUTH_TYPE"); authType != "" {
+	if authType := AuthType(os.Getenv("RADOSGW_OIDC_AUTH_TYPE")); authType != "" {
 		profileConfig.RadosGWOIDCAuthType = authType
 	}
 	if scope := os.Getenv("RADOSGW_OIDC_SCOPE"); scope != "" {
 		profileConfig.RadosGWOIDCScope = scope
 	}
-	if pkceMethod := os.Getenv("RADOSGW_OIDC_PKCE_METHOD"); pkceMethod != "" {
+	if pkceMethod := PKCEMethod(os.Getenv("RADOSGW_OIDC_PKCE_METHOD")); pkceMethod != "" {
 		profileConfig.RadosGWOIDCPKCEMethod = pkceMethod
 	}
 	if sslVerify := os.Getenv("RADOSGW_SSL_VERIFY"); sslVerify != "" {
-		profileConfig.RadosGWSSLVerify = sslVerify
+		profileConfig.RadosGWSSLVerify = SSLVerification(sslVerify)
 	}
 	if roleArn := os.Getenv("RADOSGW_ROLE_ARN"); roleArn != "" {
 		profileConfig.RoleArn = roleArn
