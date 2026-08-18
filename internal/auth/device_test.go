@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -95,6 +96,7 @@ func TestAuthenticateDeviceFlowPolling(t *testing.T) {
 		"# 1. Open this URL: https://oidc.example.com/device",
 		"# 2. Enter this code: TEST-CODE",
 		"#    OR use this direct link: https://oidc.example.com/device?user_code=TEST-CODE",
+		"# ⏰ You have 600 seconds (10m) to complete authentication",
 		"# ✓ Authentication successful!",
 	} {
 		if !strings.Contains(stderr.String(), want) {
@@ -107,7 +109,7 @@ func TestAuthenticateDeviceFlowUsesDefaultPollingInterval(t *testing.T) {
 	client := newDeviceFlowHTTPClient(
 		testDeviceHTTPResponse{
 			status: http.StatusOK,
-			body:   `{"device_code":"test-device-code","user_code":"TEST-CODE","verification_uri":"https://oidc.example.com/device"}`,
+			body:   `{"device_code":"test-device-code","user_code":"TEST-CODE","verification_uri":"https://oidc.example.com/device","expires_in":600}`,
 		},
 		testDeviceHTTPResponse{status: http.StatusOK, body: `{"access_token":"test-access-token"}`},
 	)
@@ -203,6 +205,30 @@ func TestAuthenticateDeviceFlowErrors(t *testing.T) {
 			wantContain: "invalid device authorization response",
 		},
 		{
+			name: "missing authorization expiry",
+			responses: []testDeviceHTTPResponse{{
+				status: http.StatusOK,
+				body:   `{"device_code":"test-device-code","user_code":"TEST-CODE","verification_uri":"https://oidc.example.com/device"}`,
+			}},
+			wantContain: "expires_in must be a positive number of seconds",
+		},
+		{
+			name: "negative authorization expiry",
+			responses: []testDeviceHTTPResponse{{
+				status: http.StatusOK,
+				body:   `{"device_code":"test-device-code","user_code":"TEST-CODE","verification_uri":"https://oidc.example.com/device","expires_in":-1}`,
+			}},
+			wantContain: "expires_in must be a positive number of seconds",
+		},
+		{
+			name: "negative polling interval",
+			responses: []testDeviceHTTPResponse{{
+				status: http.StatusOK,
+				body:   `{"device_code":"test-device-code","user_code":"TEST-CODE","verification_uri":"https://oidc.example.com/device","expires_in":600,"interval":-1}`,
+			}},
+			wantContain: "interval must not be negative",
+		},
+		{
 			name: "token transport",
 			responses: []testDeviceHTTPResponse{
 				{status: http.StatusOK, body: validDeviceResponse},
@@ -266,18 +292,27 @@ func TestAuthenticateDeviceFlowErrors(t *testing.T) {
 			wantQuietStop: true,
 		},
 		{
-			name: "timeout",
+			name: "provider expiry",
 			responses: []testDeviceHTTPResponse{
-				{status: http.StatusOK, body: validDeviceResponse},
+				{
+					status: http.StatusOK,
+					body:   `{"device_code":"test-device-code","user_code":"TEST-CODE","verification_uri":"https://oidc.example.com/device","expires_in":3,"interval":2}`,
+				},
 				{status: http.StatusBadRequest, body: `{"error":"authorization_pending"}`},
 			},
-			configure: func(dependencies *deviceFlowDependencies, clock *testDeviceFlowClock) {
-				dependencies.sleep = func(duration time.Duration) {
-					clock.sleeps = append(clock.sleeps, duration)
-					clock.current = clock.current.Add(AuthTimeout)
-				}
+			wantContain:   "device authorization expired after 3s",
+			wantQuietStop: true,
+		},
+		{
+			name: "slow down bounded by provider expiry",
+			responses: []testDeviceHTTPResponse{
+				{
+					status: http.StatusOK,
+					body:   `{"device_code":"test-device-code","user_code":"TEST-CODE","verification_uri":"https://oidc.example.com/device","expires_in":8,"interval":4}`,
+				},
+				{status: http.StatusBadRequest, body: `{"error":"slow_down"}`},
 			},
-			wantContain:   "authentication timeout",
+			wantContain:   "device authorization expired after 8s",
 			wantQuietStop: true,
 		},
 	}
@@ -345,6 +380,38 @@ func TestRequestDeviceAuthorizationClosesResponseBody(t *testing.T) {
 	}
 	if !body.closed {
 		t.Error("device authorization response body was not closed")
+	}
+}
+
+func TestDeviceResponseDuration(t *testing.T) {
+	tests := []struct {
+		name    string
+		seconds int
+		want    time.Duration
+		wantErr string
+		needs64 bool
+	}{
+		{name: "valid", seconds: 600, want: 10 * time.Minute},
+		{name: "zero", wantErr: "must be a positive number"},
+		{name: "negative", seconds: -1, wantErr: "must be a positive number"},
+		{name: "overflow", seconds: int(^uint(0) >> 1), wantErr: "too large", needs64: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.needs64 && strconv.IntSize < 64 {
+				t.Skip("time.Duration cannot overflow from an int-sized second count on 32-bit platforms")
+			}
+			result, err := deviceResponseDuration("expires_in", test.seconds)
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Errorf("deviceResponseDuration() error = %v, want containing %q", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil || result != test.want {
+				t.Errorf("deviceResponseDuration() = (%v, %v), want (%v, nil)", result, err, test.want)
+			}
+		})
 	}
 }
 

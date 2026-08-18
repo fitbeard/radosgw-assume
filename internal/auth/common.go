@@ -19,7 +19,8 @@ import (
 
 // Authentication timeouts and intervals
 const (
-	// AuthTimeout is the maximum time to wait for user authentication
+	// AuthTimeout is the maximum time to wait for the browser callback.
+	// Device authentication uses the provider-issued device code lifetime.
 	AuthTimeout = 60 * time.Second
 	// OIDCRequestTimeout bounds each request to the identity provider.
 	OIDCRequestTimeout = 30 * time.Second
