@@ -10,6 +10,7 @@ import (
 
 	"github.com/fitbeard/radosgw-assume/internal/auth"
 	"github.com/fitbeard/radosgw-assume/internal/config"
+	"github.com/fitbeard/radosgw-assume/internal/sts"
 
 	"gopkg.in/ini.v1"
 )
@@ -77,28 +78,28 @@ func TestGetCredentials_AuthFlows(t *testing.T) {
 				}
 			}
 
-			dependencies.assumeRole = func(_ context.Context, endpointURL, roleARN, accessToken, sessionName string, sslVerify bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
-				if endpointURL != profileConfig.EndpointURL {
-					t.Errorf("assumeRole() endpoint = %q, want %q", endpointURL, profileConfig.EndpointURL)
+			dependencies.assumeRole = func(_ context.Context, options sts.AssumeRoleOptions) (*config.AssumeRoleResult, error) {
+				if options.EndpointURL != profileConfig.EndpointURL {
+					t.Errorf("assumeRole() endpoint = %q, want %q", options.EndpointURL, profileConfig.EndpointURL)
 				}
-				if roleARN != profileConfig.RoleArn {
-					t.Errorf("assumeRole() role ARN = %q, want %q", roleARN, profileConfig.RoleArn)
+				if options.RoleARN != profileConfig.RoleArn {
+					t.Errorf("assumeRole() role ARN = %q, want %q", options.RoleARN, profileConfig.RoleArn)
 				}
-				if accessToken != expectedAccessToken {
-					t.Errorf("assumeRole() access token = %q, want %q", accessToken, expectedAccessToken)
+				if options.WebIdentityToken != expectedAccessToken {
+					t.Errorf("assumeRole() access token = %q, want %q", options.WebIdentityToken, expectedAccessToken)
 				}
-				if sessionName != "radosgw-assume-20300102T030405Z" {
-					t.Errorf("assumeRole() session name = %q, want deterministic default", sessionName)
+				if options.RoleSessionName != "radosgw-assume-20300102T030405Z" {
+					t.Errorf("assumeRole() session name = %q, want deterministic default", options.RoleSessionName)
 				}
-				if sslVerify {
+				if options.SSLVerify {
 					t.Error("assumeRole() SSL verification = true, want false")
 				}
-				if sessionDuration != 2*time.Hour {
-					t.Errorf("assumeRole() duration = %v, want 2h", sessionDuration)
+				if options.SessionDuration != 2*time.Hour {
+					t.Errorf("assumeRole() duration = %v, want 2h", options.SessionDuration)
 				}
 				return &config.AssumeRoleResult{
 					AssumedRoleArn: "arn:aws:sts::123456789012:assumed-role/TestRole/test-session",
-					EndpointURL:    endpointURL,
+					EndpointURL:    options.EndpointURL,
 				}, nil
 			}
 
@@ -155,14 +156,14 @@ func TestGetCredentials_SourceProfile(t *testing.T) {
 		t.Fatal("now() must not be called when a custom session name is configured")
 		return time.Time{}
 	}
-	dependencies.assumeRole = func(_ context.Context, endpointURL, roleARN, accessToken, sessionName string, sslVerify bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
-		if endpointURL != sourceConfig.EndpointURL || roleARN != profileConfig.RoleArn || accessToken != "test-token" {
+	dependencies.assumeRole = func(_ context.Context, options sts.AssumeRoleOptions) (*config.AssumeRoleResult, error) {
+		if options.EndpointURL != sourceConfig.EndpointURL || options.RoleARN != profileConfig.RoleArn || options.WebIdentityToken != "test-token" {
 			t.Error("assumeRole() received unexpected role parameters")
 		}
-		if sessionName != profileConfig.RoleSessionName {
-			t.Errorf("assumeRole() session name = %q, want %q", sessionName, profileConfig.RoleSessionName)
+		if options.RoleSessionName != profileConfig.RoleSessionName {
+			t.Errorf("assumeRole() session name = %q, want %q", options.RoleSessionName, profileConfig.RoleSessionName)
 		}
-		if !sslVerify || sessionDuration != time.Hour {
+		if !options.SSLVerify || options.SessionDuration != time.Hour {
 			t.Error("assumeRole() received unexpected transport or duration settings")
 		}
 		return &config.AssumeRoleResult{}, nil
@@ -226,7 +227,7 @@ func TestGetCredentials_DependencyErrors(t *testing.T) {
 			authType: config.AuthTypeToken,
 			configure: func(dependencies *credentialDependencies) {
 				dependencies.getenv = func(string) string { return "test-token" }
-				dependencies.assumeRole = func(context.Context, string, string, string, string, bool, time.Duration) (*config.AssumeRoleResult, error) {
+				dependencies.assumeRole = func(context.Context, sts.AssumeRoleOptions) (*config.AssumeRoleResult, error) {
 					return nil, errors.New("STS failure")
 				}
 			},
@@ -296,7 +297,7 @@ func newTestCredentialDependencies(t *testing.T, stderr *bytes.Buffer) credentia
 			t.Fatal("unexpected authenticateBrowser() call")
 			return "", nil
 		},
-		assumeRole: func(context.Context, string, string, string, string, bool, time.Duration) (*config.AssumeRoleResult, error) {
+		assumeRole: func(context.Context, sts.AssumeRoleOptions) (*config.AssumeRoleResult, error) {
 			t.Fatal("unexpected assumeRole() call")
 			return nil, nil
 		},

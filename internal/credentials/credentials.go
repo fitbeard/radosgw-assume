@@ -9,6 +9,7 @@ import (
 
 	"github.com/fitbeard/radosgw-assume/internal/auth"
 	"github.com/fitbeard/radosgw-assume/internal/config"
+	"github.com/fitbeard/radosgw-assume/internal/sts"
 
 	"gopkg.in/ini.v1"
 )
@@ -56,15 +57,14 @@ func getCredentials(ctx context.Context, profileName string, profileConfig *conf
 	verbosef(dependencies.stderr, verboseMode, "# Assuming role with web identity: %s\n", resolvedConfig.roleARN)
 	verbosef(dependencies.stderr, verboseMode, "# Session name: %s\n", roleSessionName)
 
-	result, err := dependencies.assumeRole(
-		ctx,
-		resolvedConfig.sourceConfig.EndpointURL,
-		resolvedConfig.roleARN,
-		accessToken,
-		roleSessionName,
-		resolvedConfig.sslVerify,
-		sessionDuration,
-	)
+	result, err := dependencies.assumeRole(ctx, sts.AssumeRoleOptions{
+		EndpointURL:      resolvedConfig.sourceConfig.EndpointURL,
+		RoleARN:          resolvedConfig.roleARN,
+		WebIdentityToken: accessToken,
+		RoleSessionName:  roleSessionName,
+		SSLVerify:        resolvedConfig.sslVerify,
+		SessionDuration:  sessionDuration,
+	})
 	if err != nil {
 		return nil, err
 	}
