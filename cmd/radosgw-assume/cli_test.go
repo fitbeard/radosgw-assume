@@ -735,6 +735,14 @@ func TestCLIRunnerFailures(t *testing.T) {
 			wantMessage: "Error loading AWS config: config failure",
 		},
 		{
+			name: "no profiles",
+			configure: func(r *cliRunner) {
+				r.loadAWSConfig = func() (*ini.File, error) { return ini.Empty(), nil }
+				r.getProfiles = func(*ini.File) []string { return nil }
+			},
+			wantMessage: "No RadosGW profiles found in AWS config file",
+		},
+		{
 			name: "interactive selector",
 			configure: func(r *cliRunner) {
 				r.loadAWSConfig = func() (*ini.File, error) { return ini.Empty(), nil }
