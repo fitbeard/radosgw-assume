@@ -20,17 +20,11 @@ func TestAuthenticateDeviceFlowPolling(t *testing.T) {
 	)
 	var stderr bytes.Buffer
 	dependencies, clock, progress := newTestDeviceFlowDependencies(&stderr, client)
+	options := testOIDCOptions()
+	options.Scope = "openid profile"
+	options.Verbose = true
 
-	token, err := authenticateDeviceFlow(
-		t.Context(),
-		"https://oidc.example.com",
-		"test-client",
-		"openid profile",
-		PKCEMethodS256,
-		true,
-		true,
-		dependencies,
-	)
+	token, err := authenticateDeviceFlow(t.Context(), options, dependencies)
 	if err != nil {
 		t.Fatalf("authenticateDeviceFlow() error = %v", err)
 	}
@@ -75,16 +69,7 @@ func TestAuthenticateDeviceFlowUsesDefaultPollingInterval(t *testing.T) {
 	)
 	dependencies, clock, _ := newTestDeviceFlowDependencies(io.Discard, client)
 
-	_, err := authenticateDeviceFlow(
-		t.Context(),
-		"https://oidc.example.com",
-		"test-client",
-		"openid",
-		PKCEMethodS256,
-		true,
-		false,
-		dependencies,
-	)
+	_, err := authenticateDeviceFlow(t.Context(), testOIDCOptions(), dependencies)
 	if err != nil {
 		t.Fatalf("authenticateDeviceFlow() error = %v", err)
 	}
@@ -295,16 +280,7 @@ func TestAuthenticateDeviceFlowErrors(t *testing.T) {
 				test.configure(&dependencies, clock)
 			}
 
-			_, err := authenticateDeviceFlow(
-				t.Context(),
-				"https://oidc.example.com",
-				"test-client",
-				"openid",
-				PKCEMethodS256,
-				true,
-				false,
-				dependencies,
-			)
+			_, err := authenticateDeviceFlow(t.Context(), testOIDCOptions(), dependencies)
 			if err == nil || !strings.Contains(err.Error(), test.wantContain) {
 				t.Errorf("authenticateDeviceFlow() error = %v, want containing %q", err, test.wantContain)
 			}
@@ -326,16 +302,7 @@ func TestAuthenticateDeviceFlowCancelsPollingWait(t *testing.T) {
 		return sleepWithContext(ctx, time.Hour)
 	}
 
-	_, err := authenticateDeviceFlow(
-		ctx,
-		"https://oidc.example.com",
-		"test-client",
-		"openid",
-		PKCEMethodS256,
-		true,
-		false,
-		dependencies,
-	)
+	_, err := authenticateDeviceFlow(ctx, testOIDCOptions(), dependencies)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("authenticateDeviceFlow() error = %v, want context cancellation", err)
 	}

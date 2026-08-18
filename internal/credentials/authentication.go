@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/fitbeard/radosgw-assume/internal/auth"
 	"github.com/fitbeard/radosgw-assume/internal/config"
 )
 
@@ -18,35 +19,30 @@ func authenticate(ctx context.Context, resolvedConfig *resolvedCredentialConfig,
 		return accessToken, nil
 	case config.AuthTypeDevice:
 		verbosef(dependencies.stderr, verboseMode, "# Starting device authentication flow\n")
-		accessToken, err := dependencies.authenticateDevice(
-			ctx,
-			resolvedConfig.sourceConfig.RadosGWOIDCProvider,
-			resolvedConfig.sourceConfig.RadosGWOIDCClientID,
-			resolvedConfig.scope,
-			string(resolvedConfig.sourceConfig.RadosGWOIDCPKCEMethod),
-			resolvedConfig.sslVerify,
-			verboseMode,
-		)
+		accessToken, err := dependencies.authenticateDevice(ctx, oidcOptions(resolvedConfig, verboseMode))
 		if err != nil {
 			return "", fmt.Errorf("device authentication failed: %w", err)
 		}
 		return accessToken, nil
 	case config.AuthTypeBrowser:
 		verbosef(dependencies.stderr, verboseMode, "# Starting browser authentication flow\n")
-		accessToken, err := dependencies.authenticateBrowser(
-			ctx,
-			resolvedConfig.sourceConfig.RadosGWOIDCProvider,
-			resolvedConfig.sourceConfig.RadosGWOIDCClientID,
-			resolvedConfig.scope,
-			string(resolvedConfig.sourceConfig.RadosGWOIDCPKCEMethod),
-			resolvedConfig.sslVerify,
-			verboseMode,
-		)
+		accessToken, err := dependencies.authenticateBrowser(ctx, oidcOptions(resolvedConfig, verboseMode))
 		if err != nil {
 			return "", fmt.Errorf("browser authentication failed: %w", err)
 		}
 		return accessToken, nil
 	default:
 		return "", fmt.Errorf("unsupported auth type: %s (supported: device, browser, token)", resolvedConfig.authType)
+	}
+}
+
+func oidcOptions(resolvedConfig *resolvedCredentialConfig, verboseMode bool) auth.OIDCOptions {
+	return auth.OIDCOptions{
+		ProviderURL: resolvedConfig.sourceConfig.RadosGWOIDCProvider,
+		ClientID:    resolvedConfig.sourceConfig.RadosGWOIDCClientID,
+		Scope:       resolvedConfig.scope,
+		PKCEMethod:  resolvedConfig.sourceConfig.RadosGWOIDCPKCEMethod,
+		SSLVerify:   resolvedConfig.sslVerify,
+		Verbose:     verboseMode,
 	}
 }

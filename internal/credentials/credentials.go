@@ -23,11 +23,11 @@ func GetCredentials(ctx context.Context, profileName string, profileConfig *conf
 func GetCredentialsWithOutput(ctx context.Context, profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration, output io.Writer) (*config.AssumeRoleResult, error) {
 	dependencies := newCredentialDependencies()
 	dependencies.stderr = output
-	dependencies.authenticateDevice = func(ctx context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
-		return auth.AuthenticateDeviceFlowWithOutput(ctx, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode, output)
+	dependencies.authenticateDevice = func(ctx context.Context, options auth.OIDCOptions) (string, error) {
+		return auth.AuthenticateDeviceFlowWithOutput(ctx, options, output)
 	}
-	dependencies.authenticateBrowser = func(ctx context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
-		return auth.AuthenticateBrowserFlowWithOutput(ctx, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode, output)
+	dependencies.authenticateBrowser = func(ctx context.Context, options auth.OIDCOptions) (string, error) {
+		return auth.AuthenticateBrowserFlowWithOutput(ctx, options, output)
 	}
 	return getCredentials(ctx, profileName, profileConfig, awsConfig, verboseMode, sessionDuration, dependencies)
 }

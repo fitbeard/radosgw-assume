@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fitbeard/radosgw-assume/internal/auth"
 	"github.com/fitbeard/radosgw-assume/internal/config"
 
 	"gopkg.in/ini.v1"
@@ -57,13 +58,13 @@ func TestGetCredentials_AuthFlows(t *testing.T) {
 
 			switch test.resolvedAuthType {
 			case config.AuthTypeDevice:
-				dependencies.authenticateDevice = func(_ context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
-					assertAuthenticationArguments(t, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode)
+				dependencies.authenticateDevice = func(_ context.Context, options auth.OIDCOptions) (string, error) {
+					assertAuthenticationOptions(t, options)
 					return "device-token", nil
 				}
 			case config.AuthTypeBrowser:
-				dependencies.authenticateBrowser = func(_ context.Context, providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) (string, error) {
-					assertAuthenticationArguments(t, providerURL, clientID, scope, pkceMethod, sslVerify, verboseMode)
+				dependencies.authenticateBrowser = func(_ context.Context, options auth.OIDCOptions) (string, error) {
+					assertAuthenticationOptions(t, options)
 					return "browser-token", nil
 				}
 			case config.AuthTypeToken:
@@ -204,7 +205,7 @@ func TestGetCredentials_DependencyErrors(t *testing.T) {
 			name:     "device authentication",
 			authType: config.AuthTypeDevice,
 			configure: func(dependencies *credentialDependencies) {
-				dependencies.authenticateDevice = func(context.Context, string, string, string, string, bool, bool) (string, error) {
+				dependencies.authenticateDevice = func(context.Context, auth.OIDCOptions) (string, error) {
 					return "", errors.New("device failure")
 				}
 			},
@@ -214,7 +215,7 @@ func TestGetCredentials_DependencyErrors(t *testing.T) {
 			name:     "browser authentication",
 			authType: config.AuthTypeBrowser,
 			configure: func(dependencies *credentialDependencies) {
-				dependencies.authenticateBrowser = func(context.Context, string, string, string, string, bool, bool) (string, error) {
+				dependencies.authenticateBrowser = func(context.Context, auth.OIDCOptions) (string, error) {
 					return "", errors.New("browser failure")
 				}
 			},
@@ -287,11 +288,11 @@ func newTestCredentialDependencies(t *testing.T, stderr *bytes.Buffer) credentia
 			t.Fatal("unexpected resolveSourceProfile() call")
 			return nil, nil
 		},
-		authenticateDevice: func(context.Context, string, string, string, string, bool, bool) (string, error) {
+		authenticateDevice: func(context.Context, auth.OIDCOptions) (string, error) {
 			t.Fatal("unexpected authenticateDevice() call")
 			return "", nil
 		},
-		authenticateBrowser: func(context.Context, string, string, string, string, bool, bool) (string, error) {
+		authenticateBrowser: func(context.Context, auth.OIDCOptions) (string, error) {
 			t.Fatal("unexpected authenticateBrowser() call")
 			return "", nil
 		},
@@ -302,24 +303,24 @@ func newTestCredentialDependencies(t *testing.T, stderr *bytes.Buffer) credentia
 	}
 }
 
-func assertAuthenticationArguments(t *testing.T, providerURL, clientID, scope, pkceMethod string, sslVerify, verboseMode bool) {
+func assertAuthenticationOptions(t *testing.T, options auth.OIDCOptions) {
 	t.Helper()
-	if providerURL != "https://oidc.example.com" {
-		t.Errorf("authenticate() provider URL = %q", providerURL)
+	if options.ProviderURL != "https://oidc.example.com" {
+		t.Errorf("authenticate() provider URL = %q", options.ProviderURL)
 	}
-	if clientID != "test-client" {
-		t.Errorf("authenticate() client ID = %q", clientID)
+	if options.ClientID != "test-client" {
+		t.Errorf("authenticate() client ID = %q", options.ClientID)
 	}
-	if scope != "openid groups" {
-		t.Errorf("authenticate() scope = %q", scope)
+	if options.Scope != "openid groups" {
+		t.Errorf("authenticate() scope = %q", options.Scope)
 	}
-	if pkceMethod != "plain" {
-		t.Errorf("authenticate() PKCE method = %q", pkceMethod)
+	if options.PKCEMethod != config.PKCEMethodPlain {
+		t.Errorf("authenticate() PKCE method = %q", options.PKCEMethod)
 	}
-	if sslVerify {
+	if options.SSLVerify {
 		t.Error("authenticate() SSL verification = true, want false")
 	}
-	if !verboseMode {
+	if !options.Verbose {
 		t.Error("authenticate() verbose mode = false, want true")
 	}
 }

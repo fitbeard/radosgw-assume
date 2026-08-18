@@ -144,15 +144,12 @@ func TestAuthenticateBrowserFlow(t *testing.T) {
 		return tokenServer.Client()
 	}
 	dependencies.discoverEndpoints = discoverOIDCEndpoints
+	options := testOIDCOptions()
+	options.ProviderURL = tokenServer.URL + "/"
+	options.Scope = "openid profile"
+	options.Verbose = true
 
-	token, err := authenticateBrowserFlow(t.Context(),
-		tokenServer.URL+"/",
-		"test-client",
-		"openid profile",
-		PKCEMethodS256,
-		true,
-		true,
-		dependencies)
+	token, err := authenticateBrowserFlow(t.Context(), options, dependencies)
 
 	if err != nil {
 		t.Fatalf("authenticateBrowserFlow() error = %v", err)
@@ -180,15 +177,11 @@ func TestAuthenticateBrowserFlowBrowserFallback(t *testing.T) {
 		return newTestBrowserCallbackServer(CallbackFallbackPort), nil
 	}
 	dependencies.openBrowser = func(string) error { return errors.New("browser unavailable") }
+	options := testOIDCOptions()
+	options.PKCEMethod = "plain"
+	options.Verbose = true
 
-	token, err := authenticateBrowserFlow(t.Context(),
-		"https://oidc.example.com",
-		"test-client",
-		"openid",
-		PKCEMethodPlain,
-		true,
-		true,
-		dependencies)
+	token, err := authenticateBrowserFlow(t.Context(), options, dependencies)
 
 	if err != nil {
 		t.Fatalf("authenticateBrowserFlow() error = %v", err)
@@ -344,14 +337,7 @@ func TestAuthenticateBrowserFlowErrors(t *testing.T) {
 			dependencies := newTestBrowserFlowDependencies(io.Discard)
 			test.configure(&dependencies)
 
-			_, err := authenticateBrowserFlow(t.Context(),
-				"https://oidc.example.com",
-				"test-client",
-				"openid",
-				PKCEMethodS256,
-				true,
-				false,
-				dependencies)
+			_, err := authenticateBrowserFlow(t.Context(), testOIDCOptions(), dependencies)
 
 			if err == nil || !strings.Contains(err.Error(), test.wantContain) {
 				t.Errorf("authenticateBrowserFlow() error = %v, want containing %q", err, test.wantContain)
@@ -394,14 +380,7 @@ func TestAuthenticateBrowserFlowStopsWaitResources(t *testing.T) {
 			dependencies.newProgress = func() browserFlowProgress { return progress }
 			test.configure(&dependencies)
 
-			_, _ = authenticateBrowserFlow(t.Context(),
-				"https://oidc.example.com",
-				"test-client",
-				"openid",
-				PKCEMethodS256,
-				true,
-				false,
-				dependencies)
+			_, _ = authenticateBrowserFlow(t.Context(), testOIDCOptions(), dependencies)
 
 			if !timer.stopped {
 				t.Error("authentication timer was not stopped")
@@ -429,16 +408,7 @@ func TestAuthenticateBrowserFlowCancelsCallbackWait(t *testing.T) {
 	}
 	dependencies.newProgress = func() browserFlowProgress { return progress }
 
-	_, err := authenticateBrowserFlow(
-		ctx,
-		"https://oidc.example.com",
-		"test-client",
-		"openid",
-		PKCEMethodS256,
-		true,
-		false,
-		dependencies,
-	)
+	_, err := authenticateBrowserFlow(ctx, testOIDCOptions(), dependencies)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("authenticateBrowserFlow() error = %v, want context cancellation", err)
 	}
