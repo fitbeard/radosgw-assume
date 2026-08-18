@@ -21,7 +21,7 @@ type processCredentialDependencies struct {
 	resolveSourceProfile func(*config.ProfileConfig, *ini.File, bool) (*config.ProfileConfig, error)
 	getenv               func(string) string
 	newCache             func(time.Duration) (processCredentialCache, error)
-	getCredentials       func(context.Context, string, *config.ProfileConfig, *ini.File, bool, time.Duration, io.Writer) (*config.AssumeRoleResult, error)
+	getCredentials       func(context.Context, RequestOptions) (*config.AssumeRoleResult, error)
 }
 
 func newProcessCredentialDependencies() processCredentialDependencies {
@@ -31,51 +31,47 @@ func newProcessCredentialDependencies() processCredentialDependencies {
 		newCache: func(sessionDuration time.Duration) (processCredentialCache, error) {
 			return credentialcache.New(sessionDuration)
 		},
-		getCredentials: GetCredentialsWithOutput,
+		getCredentials: GetCredentials,
 	}
 }
 
 // GetProcessCredentials obtains credentials for the AWS process provider,
 // reusing securely cached STS credentials unless caching is disabled.
-func GetProcessCredentials(ctx context.Context, profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration, output io.Writer, noCache bool) (*config.AssumeRoleResult, error) {
-	return getProcessCredentials(
-		ctx,
-		profileName,
-		profileConfig,
-		awsConfig,
-		verboseMode,
-		sessionDuration,
-		output,
-		noCache,
-		newProcessCredentialDependencies(),
-	)
+func GetProcessCredentials(ctx context.Context, options ProcessRequestOptions) (*config.AssumeRoleResult, error) {
+	return getProcessCredentials(ctx, options, newProcessCredentialDependencies())
 }
 
-func getProcessCredentials(ctx context.Context, profileName string, profileConfig *config.ProfileConfig, awsConfig *ini.File, verboseMode bool, sessionDuration time.Duration, output io.Writer, noCache bool, dependencies processCredentialDependencies) (*config.AssumeRoleResult, error) {
+func getProcessCredentials(ctx context.Context, options ProcessRequestOptions, dependencies processCredentialDependencies) (*config.AssumeRoleResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	retrieve := func() (*config.AssumeRoleResult, error) {
-		return dependencies.getCredentials(ctx, profileName, profileConfig, awsConfig, verboseMode, sessionDuration, output)
+	output := options.Output
+	if output == nil {
+		output = os.Stderr
 	}
-	if noCache {
+	options.Output = output
+
+	retrieve := func() (*config.AssumeRoleResult, error) {
+		return dependencies.getCredentials(ctx, options.RequestOptions)
+	}
+	if options.NoCache {
 		result, err := retrieve()
 		if err != nil {
 			return nil, err
 		}
-		reportProcessEndpoint(output, verboseMode, result)
+		reportProcessEndpoint(output, options.Verbose, result)
 		return result, nil
 	}
 
-	effectiveConfig, err := dependencies.resolveSourceProfile(profileConfig, awsConfig, false)
+	effectiveConfig, err := dependencies.resolveSourceProfile(options.ProfileConfig, options.AWSConfig, false)
 	if err != nil {
 		return nil, err
 	}
-	cacheKey, err := credentialcache.Key(profileName, effectiveConfig, sessionDuration, dependencies.getenv("RADOSGW_OIDC_TOKEN"))
+	cacheKey, err := credentialcache.Key(options.ProfileName, effectiveConfig, options.SessionDuration, dependencies.getenv("RADOSGW_OIDC_TOKEN"))
 	if err != nil {
 		return nil, err
 	}
-	cache, err := dependencies.newCache(sessionDuration)
+	cache, err := dependencies.newCache(options.SessionDuration)
 	if err != nil {
 		return nil, fmt.Errorf("initialize credential cache: %w", err)
 	}
@@ -85,9 +81,9 @@ func getProcessCredentials(ctx context.Context, profileName string, profileConfi
 		return nil, err
 	}
 	if cacheHit {
-		verbosef(output, verboseMode, "# Using cached credentials for profile: %s\n", profileName)
+		verbosef(output, options.Verbose, "# Using cached credentials for profile: %s\n", options.ProfileName)
 	} else {
-		reportProcessEndpoint(output, verboseMode, result)
+		reportProcessEndpoint(output, options.Verbose, result)
 	}
 	return result, nil
 }
