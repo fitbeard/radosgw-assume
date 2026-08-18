@@ -6,53 +6,10 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
-
-const (
-	testDeviceCode         = "test-device-code"
-	testDeviceUserCode     = "TEST-CODE"
-	testDeviceCodeVerifier = "test-device-verifier"
-	validDeviceResponse    = `{"device_code":"test-device-code","user_code":"TEST-CODE","verification_uri":"https://oidc.example.com/device","verification_uri_complete":"https://oidc.example.com/device?user_code=TEST-CODE","expires_in":600,"interval":2}`
-)
-
-type testDeviceFlowClock struct {
-	current time.Time
-	sleeps  []time.Duration
-}
-
-func (clock *testDeviceFlowClock) now() time.Time {
-	return clock.current
-}
-
-func (clock *testDeviceFlowClock) sleep(_ context.Context, duration time.Duration) error {
-	clock.sleeps = append(clock.sleeps, duration)
-	clock.current = clock.current.Add(duration)
-	return nil
-}
-
-type testDeviceFlowProgress struct {
-	stopped      bool
-	stoppedQuiet bool
-}
-
-func (progress *testDeviceFlowProgress) Stop() {
-	progress.stopped = true
-}
-
-func (progress *testDeviceFlowProgress) StopQuiet() {
-	progress.stoppedQuiet = true
-}
-
-type testDeviceHTTPResponse struct {
-	status int
-	body   string
-	err    error
-}
 
 func TestAuthenticateDeviceFlowPolling(t *testing.T) {
 	client := newDeviceFlowHTTPClient(
@@ -64,15 +21,16 @@ func TestAuthenticateDeviceFlowPolling(t *testing.T) {
 	var stderr bytes.Buffer
 	dependencies, clock, progress := newTestDeviceFlowDependencies(&stderr, client)
 
-	token, err := authenticateDeviceFlow(t.Context(),
+	token, err := authenticateDeviceFlow(
+		t.Context(),
 		"https://oidc.example.com",
 		"test-client",
 		"openid profile",
 		PKCEMethodS256,
 		true,
 		true,
-		dependencies)
-
+		dependencies,
+	)
 	if err != nil {
 		t.Fatalf("authenticateDeviceFlow() error = %v", err)
 	}
@@ -117,15 +75,16 @@ func TestAuthenticateDeviceFlowUsesDefaultPollingInterval(t *testing.T) {
 	)
 	dependencies, clock, _ := newTestDeviceFlowDependencies(io.Discard, client)
 
-	_, err := authenticateDeviceFlow(t.Context(),
+	_, err := authenticateDeviceFlow(
+		t.Context(),
 		"https://oidc.example.com",
 		"test-client",
 		"openid",
 		PKCEMethodS256,
 		true,
 		false,
-		dependencies)
-
+		dependencies,
+	)
 	if err != nil {
 		t.Fatalf("authenticateDeviceFlow() error = %v", err)
 	}
@@ -336,15 +295,16 @@ func TestAuthenticateDeviceFlowErrors(t *testing.T) {
 				test.configure(&dependencies, clock)
 			}
 
-			_, err := authenticateDeviceFlow(t.Context(),
+			_, err := authenticateDeviceFlow(
+				t.Context(),
 				"https://oidc.example.com",
 				"test-client",
 				"openid",
 				PKCEMethodS256,
 				true,
 				false,
-				dependencies)
-
+				dependencies,
+			)
 			if err == nil || !strings.Contains(err.Error(), test.wantContain) {
 				t.Errorf("authenticateDeviceFlow() error = %v, want containing %q", err, test.wantContain)
 			}
@@ -382,127 +342,4 @@ func TestAuthenticateDeviceFlowCancelsPollingWait(t *testing.T) {
 	if !progress.stoppedQuiet {
 		t.Error("authentication progress was not stopped quietly after cancellation")
 	}
-}
-
-func TestSleepWithContext(t *testing.T) {
-	if err := sleepWithContext(t.Context(), 0); err != nil {
-		t.Errorf("sleepWithContext() completed wait error = %v", err)
-	}
-
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-
-	if err := sleepWithContext(ctx, time.Hour); !errors.Is(err, context.Canceled) {
-		t.Errorf("sleepWithContext() error = %v, want context cancellation", err)
-	}
-}
-
-func TestRequestDeviceAuthorizationClosesResponseBody(t *testing.T) {
-	body := &trackingReadCloser{Reader: strings.NewReader(validDeviceResponse)}
-	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     make(http.Header),
-			Body:       body,
-		}, nil
-	})}
-
-	response, err := requestDeviceAuthorization(t.Context(),
-		client,
-		"https://oidc.example.com/protocol/openid-connect/auth/device",
-		url.Values{"client_id": {"test-client"}},
-		"https://oidc.example.com")
-
-	if err != nil {
-		t.Fatalf("requestDeviceAuthorization() error = %v", err)
-	}
-	if response.DeviceCode != testDeviceCode {
-		t.Errorf("device code = %q, want %q", response.DeviceCode, testDeviceCode)
-	}
-	if response.UserCode != testDeviceUserCode {
-		t.Errorf("user code = %q, want %q", response.UserCode, testDeviceUserCode)
-	}
-	if !body.closed {
-		t.Error("device authorization response body was not closed")
-	}
-}
-
-func TestDeviceResponseDuration(t *testing.T) {
-	tests := []struct {
-		name    string
-		seconds int
-		want    time.Duration
-		wantErr string
-		needs64 bool
-	}{
-		{name: "valid", seconds: 600, want: 10 * time.Minute},
-		{name: "zero", wantErr: "must be a positive number"},
-		{name: "negative", seconds: -1, wantErr: "must be a positive number"},
-		{name: "overflow", seconds: int(^uint(0) >> 1), wantErr: "too large", needs64: true},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if test.needs64 && strconv.IntSize < 64 {
-				t.Skip("time.Duration cannot overflow from an int-sized second count on 32-bit platforms")
-			}
-			result, err := deviceResponseDuration("expires_in", test.seconds)
-			if test.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
-					t.Errorf("deviceResponseDuration() error = %v, want containing %q", err, test.wantErr)
-				}
-				return
-			}
-			if err != nil || result != test.want {
-				t.Errorf("deviceResponseDuration() = (%v, %v), want (%v, nil)", result, err, test.want)
-			}
-		})
-	}
-}
-
-func newTestDeviceFlowDependencies(stderr io.Writer, client *http.Client) (deviceFlowDependencies, *testDeviceFlowClock, *testDeviceFlowProgress) {
-	clock := &testDeviceFlowClock{current: time.Unix(0, 0)}
-	progress := &testDeviceFlowProgress{}
-	return deviceFlowDependencies{
-		stderr: stderr,
-		generatePKCE: func(method string) (string, string, string, error) {
-			if method == "" {
-				method = DefaultPKCEMethod
-			}
-			challenge := "test-device-challenge"
-			if method == PKCEMethodPlain {
-				challenge = testDeviceCodeVerifier
-			}
-			return testDeviceCodeVerifier, challenge, method, nil
-		},
-		newHTTPClient: func(bool) *http.Client { return client },
-		discoverEndpoints: func(context.Context, *http.Client, string) (oidcEndpoints, error) {
-			return oidcEndpoints{
-				deviceAuthorization: "https://oidc.example.com/device",
-				token:               "https://oidc.example.com/token",
-			}, nil
-		},
-		now:         clock.now,
-		sleep:       clock.sleep,
-		newProgress: func() deviceFlowProgress { return progress },
-	}, clock, progress
-}
-
-func newDeviceFlowHTTPClient(responses ...testDeviceHTTPResponse) *http.Client {
-	responseIndex := 0
-	return &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if responseIndex >= len(responses) {
-			return nil, errors.New("unexpected device flow request")
-		}
-		response := responses[responseIndex]
-		responseIndex++
-		if response.err != nil {
-			return nil, response.err
-		}
-		return &http.Response{
-			StatusCode: response.status,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(response.body)),
-			Request:    request,
-		}, nil
-	})}
 }
