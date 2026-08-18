@@ -1,5 +1,60 @@
 # Changelog
 
+## [2.0.0](https://github.com/fitbeard/radosgw-assume/compare/v1.5.0...v2.0.0) (2026-08-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* require profile selection through flag ([#76](https://github.com/fitbeard/radosgw-assume/issues/76))
+
+### Features
+
+* add authenticated shell command ([#80](https://github.com/fitbeard/radosgw-assume/issues/80)) ([0b7f8c8](https://github.com/fitbeard/radosgw-assume/commit/0b7f8c843b68ce32a104e100e2824c50b53c03e7))
+* add AWS credential_process command ([#87](https://github.com/fitbeard/radosgw-assume/issues/87)) ([1a3bd1b](https://github.com/fitbeard/radosgw-assume/commit/1a3bd1bbf2e40cfa3ea4116c2c00e75bfa87e9d8))
+* add core performance baselines ([#110](https://github.com/fitbeard/radosgw-assume/issues/110)) ([39b10aa](https://github.com/fitbeard/radosgw-assume/commit/39b10aafb715d5f9d15b37609fec1385795c4465))
+* add credential cache management ([#90](https://github.com/fitbeard/radosgw-assume/issues/90)) ([a9cd597](https://github.com/fitbeard/radosgw-assume/commit/a9cd597f19a86a02d5ed26da080e0c5b4efbc05a))
+* add exec command ([#79](https://github.com/fitbeard/radosgw-assume/issues/79)) ([08d7ea4](https://github.com/fitbeard/radosgw-assume/commit/08d7ea4fb59b40183d3cb092996ec92f928a7fac))
+* cache credential_process credentials securely ([#88](https://github.com/fitbeard/radosgw-assume/issues/88)) ([2c328a8](https://github.com/fitbeard/radosgw-assume/commit/2c328a8482aea4cf11c5ffbb43d2af5f23b04e90))
+* centralize HTTP client construction ([#82](https://github.com/fitbeard/radosgw-assume/issues/82)) ([25901c4](https://github.com/fitbeard/radosgw-assume/commit/25901c4120d230a8fdd984ca3b98021d494e1587))
+* consolidate OIDC token handling ([#83](https://github.com/fitbeard/radosgw-assume/issues/83)) ([1d8d741](https://github.com/fitbeard/radosgw-assume/commit/1d8d741624113c2043ba451b42349c2448cd8fc6))
+* discover OIDC provider endpoints ([#84](https://github.com/fitbeard/radosgw-assume/issues/84)) ([309e3ee](https://github.com/fitbeard/radosgw-assume/commit/309e3ee62e1921737e527c8b67031c6e38001354))
+* require profile selection through flag ([#76](https://github.com/fitbeard/radosgw-assume/issues/76)) ([646aae8](https://github.com/fitbeard/radosgw-assume/commit/646aae846fc1f3b21875f2c42914014da6c02a17))
+* separate authenticated shell components ([#97](https://github.com/fitbeard/radosgw-assume/issues/97)) ([68d52b6](https://github.com/fitbeard/radosgw-assume/commit/68d52b613d6d402adf692e3243cbd1a2930be7e3))
+* separate browser authentication components ([#95](https://github.com/fitbeard/radosgw-assume/issues/95)) ([51ca6a6](https://github.com/fitbeard/radosgw-assume/commit/51ca6a6bdf0cc2c390e238986f8347f490cbbdb0))
+* separate CLI action execution ([#94](https://github.com/fitbeard/radosgw-assume/issues/94)) ([3c093cf](https://github.com/fitbeard/radosgw-assume/commit/3c093cf3e720c26e9416be1bb1936fa2f406a6b8))
+* separate configuration loading and resolution ([#99](https://github.com/fitbeard/radosgw-assume/issues/99)) ([3280dd9](https://github.com/fitbeard/radosgw-assume/commit/3280dd9e8873e544c88108ee1421e9457eacb69e))
+* separate credential cache components ([#98](https://github.com/fitbeard/radosgw-assume/issues/98)) ([2568227](https://github.com/fitbeard/radosgw-assume/commit/2568227b532d50c8cde1a5b183aabedf4fa9da2e))
+* separate credential orchestration components ([#100](https://github.com/fitbeard/radosgw-assume/issues/100)) ([c51265e](https://github.com/fitbeard/radosgw-assume/commit/c51265e5676437da886600aae792afd37dba6359))
+* separate device authentication components ([#102](https://github.com/fitbeard/radosgw-assume/issues/102)) ([978bc8c](https://github.com/fitbeard/radosgw-assume/commit/978bc8c65a16461604908bbf38f2a94e52a508b5))
+* separate device authentication components ([#103](https://github.com/fitbeard/radosgw-assume/issues/103)) ([4864418](https://github.com/fitbeard/radosgw-assume/commit/4864418122810510dbf39019a1c375a19cae2f5b))
+* separate OIDC authentication helpers ([#96](https://github.com/fitbeard/radosgw-assume/issues/96)) ([5a411ac](https://github.com/fitbeard/radosgw-assume/commit/5a411ac6dadf26bd2b27149a7f64606ee824a73f))
+* separate STS request and error handling ([#101](https://github.com/fitbeard/radosgw-assume/issues/101)) ([ad25cfc](https://github.com/fitbeard/radosgw-assume/commit/ad25cfcb205c132a5ea5020e1d37af52ac3d72b4))
+* simplify browser authentication orchestration ([#108](https://github.com/fitbeard/radosgw-assume/issues/108)) ([26dd4b7](https://github.com/fitbeard/radosgw-assume/commit/26dd4b7d30ebd24d36c4319ff30f0780b41f90ff))
+* use typed credential request options ([#107](https://github.com/fitbeard/radosgw-assume/issues/107)) ([142fffe](https://github.com/fitbeard/radosgw-assume/commit/142fffef8cc47692c3a6e604c2d62d6d1de18ba3))
+* use typed OIDC authentication options ([#105](https://github.com/fitbeard/radosgw-assume/issues/105)) ([8c27c28](https://github.com/fitbeard/radosgw-assume/commit/8c27c287664153c3cd1744f55022fd2f57ca556f))
+* use typed STS assume-role options ([#106](https://github.com/fitbeard/radosgw-assume/issues/106)) ([1dbdae2](https://github.com/fitbeard/radosgw-assume/commit/1dbdae24075085fed4ab4791d5e0746e4f82acf3))
+
+
+### Bug Fixes
+
+* harden network error handling ([#78](https://github.com/fitbeard/radosgw-assume/issues/78)) ([c7839fd](https://github.com/fitbeard/radosgw-assume/commit/c7839fd145ffc3408c877d58c97695f32c44f270))
+* harden OIDC response handling ([#77](https://github.com/fitbeard/radosgw-assume/issues/77)) ([180bc6d](https://github.com/fitbeard/radosgw-assume/commit/180bc6db4c7f20b1f9758f3b31cfeee2e7926c6a))
+* harden source profile resolution ([#75](https://github.com/fitbeard/radosgw-assume/issues/75)) ([ac40c6e](https://github.com/fitbeard/radosgw-assume/commit/ac40c6eed6173f12fdf9802872d74dbd547684af))
+* honor OIDC device authorization expiry ([#91](https://github.com/fitbeard/radosgw-assume/issues/91)) ([7023795](https://github.com/fitbeard/radosgw-assume/commit/7023795c485a2fa8be9e48c7012f8184b5d2838b))
+* improve secure random string generation ([#81](https://github.com/fitbeard/radosgw-assume/issues/81)) ([d93ee78](https://github.com/fitbeard/radosgw-assume/commit/d93ee78d951293aaf821bc76d57a7d5b0dda408b))
+* prevent accidental credential output to terminal ([#109](https://github.com/fitbeard/radosgw-assume/issues/109)) ([c5d6221](https://github.com/fitbeard/radosgw-assume/commit/c5d6221c14dd6329546b0cda5c7e8d57339ade95))
+* propagate context through authentication requests ([#93](https://github.com/fitbeard/radosgw-assume/issues/93)) ([a2e306c](https://github.com/fitbeard/radosgw-assume/commit/a2e306c5bbade5abba0b384190ffff638a7e3e81))
+* remove obsolete configuration APIs ([#85](https://github.com/fitbeard/radosgw-assume/issues/85)) ([044f322](https://github.com/fitbeard/radosgw-assume/commit/044f3221c50ea8f298a8b25d13fbc7c1f8848079))
+* separate command argument parsing ([#92](https://github.com/fitbeard/radosgw-assume/issues/92)) ([8ef91de](https://github.com/fitbeard/radosgw-assume/commit/8ef91dec1e0dc03d78201e16cd35bb82754d1fa0))
+* support interactive exports through source ([#86](https://github.com/fitbeard/radosgw-assume/issues/86)) ([3180c44](https://github.com/fitbeard/radosgw-assume/commit/3180c4463cd8c22541480ef6d65ac61c46486fa8))
+* validate configuration values consistently ([#104](https://github.com/fitbeard/radosgw-assume/issues/104)) ([0aa6536](https://github.com/fitbeard/radosgw-assume/commit/0aa65361f4dccd1cc7da388f8b244d093ce0bb46))
+* validate STS credential responses ([#74](https://github.com/fitbeard/radosgw-assume/issues/74)) ([6c68118](https://github.com/fitbeard/radosgw-assume/commit/6c681188043d08c1791fee9e04b2d541fe47af50))
+
+
+### Miscellaneous
+
+* **deps:** Bump charm.land/lipgloss/v2 from 2.0.1 to 2.0.6 ([#89](https://github.com/fitbeard/radosgw-assume/issues/89)) ([3125d34](https://github.com/fitbeard/radosgw-assume/commit/3125d34feb366e53d43eae68398ba503b284a430))
+
 ## [1.5.0](https://github.com/fitbeard/radosgw-assume/compare/v1.4.4...v1.5.0) (2026-08-11)
 
 
