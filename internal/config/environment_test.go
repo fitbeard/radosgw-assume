@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestGetProfileConfigFromEnv(t *testing.T) {
 	tests := []struct {
@@ -14,6 +17,7 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 		wantSSLVerify   SSLVerification
 		wantRoleARN     string
 		wantSessionName string
+		wantErrContain  string
 	}{
 		{
 			name: "complete OIDC config",
@@ -22,8 +26,12 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 				"RADOSGW_OIDC_PROVIDER":  "https://oidc.example.com",
 				"RADOSGW_OIDC_CLIENT_ID": "test-client",
 			},
-			wantErr: false,
-			wantURL: "https://test.example.com",
+			wantErr:        false,
+			wantURL:        "https://test.example.com",
+			wantAuthType:   AuthTypeDevice,
+			wantScope:      DefaultOIDCScope,
+			wantPKCEMethod: PKCEMethodS256,
+			wantSSLVerify:  SSLVerificationTrue,
 		},
 		{
 			name: "token auth type",
@@ -31,9 +39,10 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 				"AWS_ENDPOINT_URL":       "https://test.example.com",
 				"RADOSGW_OIDC_AUTH_TYPE": "token",
 			},
-			wantErr:      false,
-			wantURL:      "https://test.example.com",
-			wantAuthType: "token",
+			wantErr:       false,
+			wantURL:       "https://test.example.com",
+			wantAuthType:  AuthTypeToken,
+			wantSSLVerify: SSLVerificationTrue,
 		},
 		{
 			name: "with all optional OIDC values",
@@ -49,10 +58,10 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 				"RADOSGW_ROLE_SESSION_NAME": "custom-session",
 			},
 			wantURL:         "https://test.example.com",
-			wantAuthType:    "browser",
+			wantAuthType:    AuthTypeBrowser,
 			wantScope:       "openid profile",
-			wantPKCEMethod:  "plain",
-			wantSSLVerify:   "false",
+			wantPKCEMethod:  PKCEMethodPlain,
+			wantSSLVerify:   SSLVerificationFalse,
 			wantRoleARN:     "arn:aws:iam::123456789012:role/TestRole",
 			wantSessionName: "custom-session",
 		},
@@ -66,6 +75,10 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 			},
 			wantErr:         false,
 			wantURL:         "https://test.example.com",
+			wantAuthType:    AuthTypeDevice,
+			wantScope:       DefaultOIDCScope,
+			wantPKCEMethod:  PKCEMethodS256,
+			wantSSLVerify:   SSLVerificationTrue,
 			wantSessionName: "my-custom-session",
 		},
 		{
@@ -79,8 +92,8 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 			},
 			wantErr:         false,
 			wantURL:         "https://test.example.com",
-			wantAuthType:    "token",
-			wantSSLVerify:   "0",
+			wantAuthType:    AuthTypeToken,
+			wantSSLVerify:   SSLVerificationZero,
 			wantRoleARN:     "arn:aws:iam::123456789012:role/TokenRole",
 			wantSessionName: "token-session",
 		},
@@ -107,6 +120,37 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 				"RADOSGW_OIDC_PROVIDER": "https://oidc.example.com",
 			},
 			wantErr: true,
+		},
+		{
+			name: "unsupported auth type",
+			envVars: map[string]string{
+				"AWS_ENDPOINT_URL":       "https://test.example.com",
+				"RADOSGW_OIDC_AUTH_TYPE": "password",
+			},
+			wantErr:        true,
+			wantErrContain: "radosgw_oidc_auth_type",
+		},
+		{
+			name: "unsupported PKCE method",
+			envVars: map[string]string{
+				"AWS_ENDPOINT_URL":         "https://test.example.com",
+				"RADOSGW_OIDC_PROVIDER":    "https://oidc.example.com",
+				"RADOSGW_OIDC_CLIENT_ID":   "test-client",
+				"RADOSGW_OIDC_PKCE_METHOD": "s256",
+			},
+			wantErr:        true,
+			wantErrContain: "radosgw_oidc_pkce_method",
+		},
+		{
+			name: "unsupported SSL verification",
+			envVars: map[string]string{
+				"AWS_ENDPOINT_URL":       "https://test.example.com",
+				"RADOSGW_OIDC_PROVIDER":  "https://oidc.example.com",
+				"RADOSGW_OIDC_CLIENT_ID": "test-client",
+				"RADOSGW_SSL_VERIFY":     "yes",
+			},
+			wantErr:        true,
+			wantErrContain: "radosgw_ssl_verify",
 		},
 	}
 
@@ -135,6 +179,8 @@ func TestGetProfileConfigFromEnv(t *testing.T) {
 			if test.wantErr {
 				if err == nil {
 					t.Errorf("GetProfileConfigFromEnv() expected error but got none")
+				} else if test.wantErrContain != "" && !strings.Contains(err.Error(), test.wantErrContain) {
+					t.Errorf("GetProfileConfigFromEnv() error = %v, want containing %q", err, test.wantErrContain)
 				}
 				return
 			}

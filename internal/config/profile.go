@@ -71,6 +71,9 @@ func GetProfileConfig(profileName string, awsConfig *ini.File) (*ProfileConfig, 
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse profile config: %w", err)
 		}
+		if err := profileConfig.ValidateValues(); err != nil {
+			return nil, fmt.Errorf("profile '%s': %w", profileName, err)
+		}
 	} else {
 		availableProfiles := GetRadosGWProfiles(awsConfig)
 		if len(availableProfiles) == 0 {

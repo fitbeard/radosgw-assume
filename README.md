@@ -141,26 +141,26 @@ Commands:
   version                   Show version information
 
 Examples:
-  radosgw-assume                                        # Interactive selection, clean output
-  radosgw-assume -p myprofile                           # Use specific profile, clean output
-  radosgw-assume --env                                  # Use environment variables
-  radosgw-assume -d 2h -p myprofile                     # 2-hour session duration
-  radosgw-assume -d 30m -p myprofile                    # 30-minute session duration
-  radosgw-assume -d 15m -p myprofile                    # 15-minute session duration (minimum)
-  radosgw-assume -s my-session -p myprofile             # Custom session name
-  radosgw-assume exec -- aws s3 ls                      # Select profile, then run once
-  radosgw-assume exec -p myprofile -- aws s3 ls         # Use specific profile, then run once
-  radosgw-assume shell                                  # Select profile, then start a shell
-  radosgw-assume shell -p myprofile                     # Start a shell for a specific profile
-  radosgw-assume credential-process -p myprofile        # Emit AWS credential_process JSON
-  radosgw-assume credential-process -d 12h -p myprofile # Request and cache a 12-hour session
-  radosgw-assume cache status                           # Inspect cache without exposing credentials
-  radosgw-assume cache clear                            # Remove all cached credentials
-  eval "$(radosgw-assume)"                              # Interactive export with eval
-  eval "$(radosgw-assume -p myprofile)"                 # Direct profile export with eval
-  source <(radosgw-assume)                              # Interactive export with source
-  source <(radosgw-assume -p myprofile)                 # Direct profile export with source
-  radosgw-assume --verbose                              # Verbose output with detailed info
+  radosgw-assume                                         # Interactive selection, clean output
+  radosgw-assume -p myprofile                            # Use specific profile, clean output
+  radosgw-assume --env                                   # Use environment variables
+  radosgw-assume -d 2h -p myprofile                      # 2-hour session duration
+  radosgw-assume -d 30m -p myprofile                     # 30-minute session duration
+  radosgw-assume -d 15m -p myprofile                     # 15-minute session duration (minimum)
+  radosgw-assume -s my-session -p myprofile              # Custom session name
+  radosgw-assume exec -- aws s3 ls                       # Select profile, then run once
+  radosgw-assume exec -p myprofile -- aws s3 ls          # Use specific profile, then run once
+  radosgw-assume shell                                   # Select profile, then start a shell
+  radosgw-assume shell -p myprofile                      # Start a shell for a specific profile
+  radosgw-assume credential-process -p myprofile         # Emit AWS credential_process JSON
+  radosgw-assume credential-process -d 12h -p myprofile  # Request and cache a 12-hour session
+  radosgw-assume cache status                            # Inspect cache without exposing credentials
+  radosgw-assume cache clear                             # Remove all cached credentials
+  eval "$(radosgw-assume)"                               # Interactive export with eval
+  eval "$(radosgw-assume -p myprofile)"                  # Direct profile export with eval
+  source <(radosgw-assume)                               # Interactive export with source
+  source <(radosgw-assume -p myprofile)                  # Direct profile export with source
+  radosgw-assume --verbose                               # Verbose output with detailed info
 
 Environment Variables (when using -e/--env):
   RADOSGW_OIDC_PROVIDER      - OIDC issuer URL (required, except for token auth)
@@ -172,7 +172,7 @@ Environment Variables (when using -e/--env):
   RADOSGW_OIDC_TOKEN         - Pre-existing OIDC token (required for token auth type)
   RADOSGW_OIDC_SCOPE         - OIDC scope (optional, default: openid, ignored for token auth)
   RADOSGW_OIDC_PKCE_METHOD   - PKCE method: S256|plain (optional, default: S256)
-  RADOSGW_SSL_VERIFY         - SSL verification: true|false (optional, default: true)
+  RADOSGW_SSL_VERIFY         - SSL verification: true|false|1|0 (optional, default: true)
 
 Configuration:
   Edit ~/.aws/config with RadosGW and OIDC settings

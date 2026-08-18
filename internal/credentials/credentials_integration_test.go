@@ -89,7 +89,7 @@ func TestGetCredentials_TokenAuth(t *testing.T) {
 	}
 }
 
-func TestGetCredentials_UnsupportedAuthType(t *testing.T) {
+func TestGetCredentials_InvalidAuthType(t *testing.T) {
 	awsConfig := ini.Empty()
 
 	profileConfig := &config.ProfileConfig{
@@ -102,10 +102,10 @@ func TestGetCredentials_UnsupportedAuthType(t *testing.T) {
 
 	_, err := GetCredentials(t.Context(), "test-profile", profileConfig, awsConfig, false, time.Hour)
 	if err == nil {
-		t.Error("GetCredentials() with unsupported auth type should return error")
+		t.Error("GetCredentials() with invalid auth type should return error")
 	}
-	if !strings.Contains(err.Error(), "unsupported auth type") {
-		t.Errorf("GetCredentials() should mention unsupported auth type, got: %v", err)
+	if !strings.Contains(err.Error(), "invalid radosgw_oidc_auth_type") {
+		t.Errorf("GetCredentials() should identify invalid auth type, got: %v", err)
 	}
 }
 
@@ -228,8 +228,8 @@ func TestGetCredentials_InvalidPKCEMethod(t *testing.T) {
 	if err == nil {
 		t.Fatal("GetCredentials() expected an error")
 	}
-	if !strings.Contains(err.Error(), "unsupported PKCE method") {
-		t.Errorf("GetCredentials() error = %v, want unsupported PKCE method", err)
+	if !strings.Contains(err.Error(), "invalid radosgw_oidc_pkce_method") {
+		t.Errorf("GetCredentials() error = %v, want invalid PKCE configuration", err)
 	}
 }
 

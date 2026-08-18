@@ -30,12 +30,13 @@ type cacheKeyInput struct {
 
 // Key returns a stable, non-secret cache key for an effective profile.
 func Key(profileName string, profileConfig *config.ProfileConfig, sessionDuration time.Duration, oidcToken string) (string, error) {
-	if profileConfig == nil {
-		return "", fmt.Errorf("create credential cache key: profile configuration is missing")
+	normalizedConfig, err := profileConfig.Normalize()
+	if err != nil {
+		return "", fmt.Errorf("create credential cache key: %w", err)
 	}
 
 	tokenIdentity := ""
-	if profileConfig.RadosGWOIDCAuthType == config.AuthTypeToken {
+	if normalizedConfig.RadosGWOIDCAuthType == config.AuthTypeToken {
 		tokenHash := sha256.Sum256([]byte(oidcToken))
 		tokenIdentity = hex.EncodeToString(tokenHash[:])
 	}
@@ -43,15 +44,15 @@ func Key(profileName string, profileConfig *config.ProfileConfig, sessionDuratio
 	input := cacheKeyInput{
 		Version:           cacheKeyVersion,
 		ProfileName:       profileName,
-		EndpointURL:       profileConfig.EndpointURL,
-		OIDCProvider:      profileConfig.RadosGWOIDCProvider,
-		OIDCClientID:      profileConfig.RadosGWOIDCClientID,
-		OIDCAuthType:      profileConfig.RadosGWOIDCAuthType,
-		OIDCScope:         profileConfig.RadosGWOIDCScope,
-		OIDCPKCEMethod:    profileConfig.RadosGWOIDCPKCEMethod,
-		SSLVerify:         profileConfig.RadosGWSSLVerify,
-		RoleARN:           profileConfig.RoleArn,
-		RoleSessionName:   profileConfig.RoleSessionName,
+		EndpointURL:       normalizedConfig.EndpointURL,
+		OIDCProvider:      normalizedConfig.RadosGWOIDCProvider,
+		OIDCClientID:      normalizedConfig.RadosGWOIDCClientID,
+		OIDCAuthType:      normalizedConfig.RadosGWOIDCAuthType,
+		OIDCScope:         normalizedConfig.RadosGWOIDCScope,
+		OIDCPKCEMethod:    normalizedConfig.RadosGWOIDCPKCEMethod,
+		SSLVerify:         normalizedConfig.RadosGWSSLVerify,
+		RoleARN:           normalizedConfig.RoleArn,
+		RoleSessionName:   normalizedConfig.RoleSessionName,
 		SessionDuration:   int64(sessionDuration),
 		OIDCTokenIdentity: tokenIdentity,
 	}

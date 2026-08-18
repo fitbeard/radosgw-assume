@@ -179,6 +179,34 @@ source_profile = missing
 	}
 }
 
+func TestResolveSourceProfileRejectsInvalidInheritedValue(t *testing.T) {
+	awsConfig, err := ini.Load([]byte(`[profile source]
+endpoint_url = https://storage.example.com
+radosgw_oidc_provider = https://oidc.example.com
+radosgw_oidc_client_id = test-client
+radosgw_oidc_pkce_method = s256
+
+[profile target]
+source_profile = source
+role_arn = arn:aws:iam::123456789012:role/TestRole
+`))
+	if err != nil {
+		t.Fatalf("ini.Load() error = %v", err)
+	}
+	target, err := GetProfileConfig("target", awsConfig)
+	if err != nil {
+		t.Fatalf("GetProfileConfig() error = %v", err)
+	}
+
+	resolved, err := ResolveSourceProfile(target, awsConfig, false)
+	if err == nil || !strings.Contains(err.Error(), "profile 'source'") || !strings.Contains(err.Error(), "radosgw_oidc_pkce_method") {
+		t.Errorf("ResolveSourceProfile() error = %v, want source-specific PKCE error", err)
+	}
+	if resolved != nil {
+		t.Errorf("ResolveSourceProfile() = %#v, want nil", resolved)
+	}
+}
+
 func TestResolveDefaultSourceProfile(t *testing.T) {
 	awsConfig, err := ini.Load([]byte(`[default]
 endpoint_url = https://default.example.com

@@ -8,11 +8,6 @@ import (
 	"gopkg.in/ini.v1"
 )
 
-const (
-	defaultAuthType = config.AuthTypeDevice
-	defaultScope    = "openid"
-)
-
 type resolvedCredentialConfig struct {
 	sourceConfig *config.ProfileConfig
 	roleARN      string
@@ -38,15 +33,17 @@ func resolveCredentialConfig(profileName string, profileConfig *config.ProfileCo
 	} else {
 		verbosef(dependencies.stderr, verboseMode, "# Direct role assumption: %s\n", profileConfig.RoleArn)
 	}
+	normalizedSourceConfig, err := sourceConfig.Normalize()
+	if err != nil {
+		return nil, fmt.Errorf("profile '%s': %w", profileName, err)
+	}
+	sourceConfig = normalizedSourceConfig
 
 	if sourceConfig.EndpointURL == "" {
 		return nil, fmt.Errorf("profile '%s': missing required 'endpoint_url'. Add endpoint_url to your profile or its source profile", profileName)
 	}
 
 	authType := sourceConfig.RadosGWOIDCAuthType
-	if authType == "" {
-		authType = defaultAuthType
-	}
 
 	if authType != config.AuthTypeToken {
 		sourceProfileName := profileName
@@ -61,16 +58,11 @@ func resolveCredentialConfig(profileName string, profileConfig *config.ProfileCo
 		}
 	}
 
-	scope := sourceConfig.RadosGWOIDCScope
-	if scope == "" {
-		scope = defaultScope
-	}
-
 	return &resolvedCredentialConfig{
 		sourceConfig: sourceConfig,
 		roleARN:      profileConfig.RoleArn,
 		authType:     authType,
-		scope:        scope,
+		scope:        sourceConfig.RadosGWOIDCScope,
 		sslVerify:    sourceConfig.RadosGWSSLVerify.Enabled(),
 	}, nil
 }
