@@ -15,26 +15,26 @@ import (
 const STSRequestTimeout = 30 * time.Second
 
 // AssumeRoleWithWebIdentity performs STS AssumeRoleWithWebIdentity operation
-func AssumeRoleWithWebIdentity(ctx context.Context, endpointURL, roleArn, webIdentityToken, roleSessionName string, sslVerify bool, sessionDuration time.Duration) (*config.AssumeRoleResult, error) {
-	return assumeRoleWithWebIdentity(ctx, endpointURL, roleArn, webIdentityToken, roleSessionName, sslVerify, sessionDuration, STSRequestTimeout)
+func AssumeRoleWithWebIdentity(ctx context.Context, options AssumeRoleOptions) (*config.AssumeRoleResult, error) {
+	return assumeRoleWithWebIdentity(ctx, options, STSRequestTimeout)
 }
 
-func assumeRoleWithWebIdentity(ctx context.Context, endpointURL, roleArn, webIdentityToken, roleSessionName string, sslVerify bool, sessionDuration, requestTimeout time.Duration) (*config.AssumeRoleResult, error) {
+func assumeRoleWithWebIdentity(ctx context.Context, options AssumeRoleOptions, requestTimeout time.Duration) (*config.AssumeRoleResult, error) {
 	cfg := aws.Config{
 		Credentials: aws.AnonymousCredentials{},
-		HTTPClient:  httpclient.New(sslVerify, requestTimeout),
+		HTTPClient:  httpclient.New(options.SSLVerify, requestTimeout),
 		Region:      "us-east-1",
 	}
 
 	stsClient := sts.NewFromConfig(cfg, func(o *sts.Options) {
-		o.BaseEndpoint = aws.String(endpointURL)
+		o.BaseEndpoint = aws.String(options.EndpointURL)
 	})
 
 	input := &sts.AssumeRoleWithWebIdentityInput{
-		RoleArn:          aws.String(roleArn),
-		RoleSessionName:  aws.String(roleSessionName),
-		DurationSeconds:  aws.Int32(int32(sessionDuration.Seconds())),
-		WebIdentityToken: aws.String(webIdentityToken),
+		RoleArn:          aws.String(options.RoleARN),
+		RoleSessionName:  aws.String(options.RoleSessionName),
+		DurationSeconds:  aws.Int32(int32(options.SessionDuration.Seconds())),
+		WebIdentityToken: aws.String(options.WebIdentityToken),
 	}
 
 	requestContext, cancelRequest := context.WithTimeout(ctx, requestTimeout)
@@ -42,8 +42,8 @@ func assumeRoleWithWebIdentity(ctx context.Context, endpointURL, roleArn, webIde
 
 	result, err := stsClient.AssumeRoleWithWebIdentity(requestContext, input)
 	if err != nil {
-		return nil, formatSTSError(err, endpointURL, roleArn, sessionDuration)
+		return nil, formatSTSError(err, options.EndpointURL, options.RoleARN, options.SessionDuration)
 	}
 
-	return buildAssumeRoleResult(result, endpointURL)
+	return buildAssumeRoleResult(result, options.EndpointURL)
 }

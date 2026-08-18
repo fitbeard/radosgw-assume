@@ -21,7 +21,7 @@ type credentialDependencies struct {
 	resolveSourceProfile func(*config.ProfileConfig, *ini.File, bool) (*config.ProfileConfig, error)
 	authenticateDevice   func(context.Context, auth.OIDCOptions) (string, error)
 	authenticateBrowser  func(context.Context, auth.OIDCOptions) (string, error)
-	assumeRole           func(context.Context, string, string, string, string, bool, time.Duration) (*config.AssumeRoleResult, error)
+	assumeRole           func(context.Context, sts.AssumeRoleOptions) (*config.AssumeRoleResult, error)
 }
 
 func newCredentialDependencies() credentialDependencies {

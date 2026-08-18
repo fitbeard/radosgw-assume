@@ -51,12 +51,14 @@ func TestAssumeRoleWithWebIdentity(t *testing.T) {
 
 	result, err := AssumeRoleWithWebIdentity(
 		t.Context(),
-		server.URL,
-		"arn:aws:iam::123456789012:role/TestRole",
-		"test-token",
-		"test-session",
-		true,
-		time.Hour,
+		AssumeRoleOptions{
+			EndpointURL:      server.URL,
+			RoleARN:          "arn:aws:iam::123456789012:role/TestRole",
+			WebIdentityToken: "test-token",
+			RoleSessionName:  "test-session",
+			SSLVerify:        true,
+			SessionDuration:  time.Hour,
+		},
 	)
 	if err != nil {
 		t.Fatalf("AssumeRoleWithWebIdentity() error = %v", err)
@@ -81,12 +83,14 @@ func TestAssumeRoleWithWebIdentityTimeout(t *testing.T) {
 
 	_, err := assumeRoleWithWebIdentity(
 		t.Context(),
-		server.URL,
-		"arn:aws:iam::123456789012:role/TestRole",
-		"test-token",
-		"test-session",
-		true,
-		time.Hour,
+		AssumeRoleOptions{
+			EndpointURL:      server.URL,
+			RoleARN:          "arn:aws:iam::123456789012:role/TestRole",
+			WebIdentityToken: "test-token",
+			RoleSessionName:  "test-session",
+			SSLVerify:        true,
+			SessionDuration:  time.Hour,
+		},
 		25*time.Millisecond,
 	)
 	if err == nil {
@@ -103,12 +107,14 @@ func TestAssumeRoleWithWebIdentityHonorsCancellation(t *testing.T) {
 
 	_, err := AssumeRoleWithWebIdentity(
 		ctx,
-		"https://storage.example.com",
-		"arn:aws:iam::123456789012:role/TestRole",
-		"test-token",
-		"test-session",
-		true,
-		time.Hour,
+		AssumeRoleOptions{
+			EndpointURL:      "https://storage.example.com",
+			RoleARN:          "arn:aws:iam::123456789012:role/TestRole",
+			WebIdentityToken: "test-token",
+			RoleSessionName:  "test-session",
+			SSLVerify:        true,
+			SessionDuration:  time.Hour,
+		},
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("AssumeRoleWithWebIdentity() error = %v, want context cancellation", err)
