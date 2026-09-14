@@ -7,7 +7,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/aws/aws-sdk-go-v2 v1.43.6
 	github.com/aws/aws-sdk-go-v2/service/sts v1.45.6
-	github.com/aws/smithy-go v1.27.8
+	github.com/aws/smithy-go v1.28.1
 	github.com/charmbracelet/x/term v0.2.2
 	golang.org/x/sys v0.47.0
 	gopkg.in/ini.v1 v1.67.3
