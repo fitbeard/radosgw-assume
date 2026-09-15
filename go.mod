@@ -1,6 +1,6 @@
 module github.com/fitbeard/radosgw-assume
 
-go 1.26
+go 1.27
 
 require (
 	charm.land/huh/v2 v2.0.3
@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.45.6
 	github.com/aws/smithy-go v1.28.1
 	github.com/charmbracelet/x/term v0.2.2
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
 	gopkg.in/ini.v1 v1.67.3
 )
 
