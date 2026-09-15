@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.0.1](https://github.com/fitbeard/radosgw-assume/compare/v2.0.0...v2.0.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* temporary fix for Homebrew cask release ([#117](https://github.com/fitbeard/radosgw-assume/issues/117)) ([450f171](https://github.com/fitbeard/radosgw-assume/commit/450f1710b8efc91c2b601c03ecb473abe8b4fda5))
+
+
+### Miscellaneous
+
+* **deps:** Bump github.com/aws/smithy-go from 1.27.8 to 1.28.1 ([#114](https://github.com/fitbeard/radosgw-assume/issues/114)) ([8e7d789](https://github.com/fitbeard/radosgw-assume/commit/8e7d7893d1277f9b1d8c6efda60aaca609054018))
+* **deps:** Bump golang.org/x/sys from 0.47.0 to 0.48.0 ([#116](https://github.com/fitbeard/radosgw-assume/issues/116)) ([8ace350](https://github.com/fitbeard/radosgw-assume/commit/8ace3501585aa9ab668e29642ef8b7eb1d2fda5e))
+* **deps:** Bump the aws-sdk group with 2 updates ([#112](https://github.com/fitbeard/radosgw-assume/issues/112)) ([0cc788e](https://github.com/fitbeard/radosgw-assume/commit/0cc788e105929247a8eebcf04504310bde5d9d26))
+
 ## [2.0.0](https://github.com/fitbeard/radosgw-assume/compare/v1.5.0...v2.0.0) (2026-08-18)
 
 
