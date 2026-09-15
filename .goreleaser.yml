@@ -47,12 +47,24 @@ homebrew_casks:
     commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
     homepage: https://github.com/fitbeard/radosgw-assume
     description: CLI tool for AWS STS role assumption with RadosGW.
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/radosgw-assume"]
-          end
+    # hooks:
+    #   post:
+    #     install: |
+    #       if OS.mac?
+    #         system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/radosgw-assume"]
+    #       end
+    #
+    # Homebrew 7 deprecates the postflight block that hooks.post.install
+    # renders, so emit postflight_steps via custom_block instead. goreleaser
+    # templates the whole cask, so {{staged_path}} is written as a template
+    # producing that literal, expanded by Homebrew at install time. Move this
+    # to the dedicated goreleaser field once it ships (goreleaser#6870).
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{staged_path}}" }}/radosgw-assume"]
+        end
+      end
     repository:
       owner: fitbeard
       name: homebrew-radosgw-assume
