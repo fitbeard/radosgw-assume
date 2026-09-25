@@ -167,7 +167,7 @@ func TestCLIRunnerInformationalActions(t *testing.T) {
 	}
 }
 
-func TestCLIRunnerRejectsTerminalCredentialExport(t *testing.T) {
+func TestCLIRunnerSkipsTerminalCredentialExport(t *testing.T) {
 	tests := []struct {
 		name        string
 		program     string
@@ -205,7 +205,7 @@ func TestCLIRunnerRejectsTerminalCredentialExport(t *testing.T) {
 				t.Errorf("run() stdout = %q, want no credential output", stdout.String())
 			}
 			for _, want := range []string{
-				"refusing to print temporary credentials to a terminal",
+				"Credential export skipped to avoid displaying temporary credentials in the terminal.",
 				"add --show-credentials",
 				"eval \"$(" + test.wantCommand + ")\"",
 				"source <(" + test.wantCommand + ")",
