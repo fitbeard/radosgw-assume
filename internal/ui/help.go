@@ -62,7 +62,7 @@ func FprintUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  eval \"$(radosgw-assume --verbose)\"                     # Export with detailed diagnostics")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Security:")
-	_, _ = fmt.Fprintln(w, "  Credential exports are refused when stdout is a terminal unless --show-credentials is set.")
+	_, _ = fmt.Fprintln(w, "  Direct terminal credential exports are skipped unless --show-credentials is set.")
 	_, _ = fmt.Fprintln(w, "  Capture them with eval/source, or avoid exporting with exec/shell.")
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Environment Variables (when using -e/--env):")

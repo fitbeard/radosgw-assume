@@ -162,7 +162,7 @@ Examples:
   eval "$(radosgw-assume --verbose)"                     # Export with detailed diagnostics
 
 Security:
-  Credential exports are refused when stdout is a terminal unless --show-credentials is set.
+  Direct terminal credential exports are skipped unless --show-credentials is set.
   Capture them with eval/source, or avoid exporting with exec/shell.
 
 Environment Variables (when using -e/--env):
@@ -190,7 +190,7 @@ eval "$(radosgw-assume)"
 source <(radosgw-assume)
 ```
 
-For safety, a direct terminal invocation such as `radosgw-assume -p myprofile` exits before authentication instead of displaying credentials in terminal scrollback. The guard applies only when stdout is a terminal; `eval`, `source`, and explicit redirection continue to receive the generated exports. To deliberately display credentials, opt in explicitly with `radosgw-assume --show-credentials -p myprofile` or `radosgw-assume --show-credentials --env`.
+For safety, a direct terminal invocation such as `radosgw-assume -p myprofile` stops before authentication instead of displaying credentials in terminal scrollback. This applies only when stdout is a terminal; `eval`, `source`, and explicit redirection continue to receive the generated exports. To display credentials anyway, opt in explicitly with `radosgw-assume --show-credentials -p myprofile` or `radosgw-assume --show-credentials --env`.
 
 Both forms support interactive profile selection and all regular options. Select a profile directly when interaction is not needed:
 
@@ -425,7 +425,7 @@ aws s3 ls
 - name: Upload to S3
   env:
     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    RADOSGW_ASSUME_RELEASE: "v1.2.0"
+    RADOSGW_ASSUME_RELEASE: "v2.0.0"
     AWS_ENDPOINT_URL: https://storage.example.com
     RADOSGW_ROLE_ARN: "arn:aws:iam:::role/examples/GitHubExample"
     RADOSGW_OIDC_AUTH_TYPE: token

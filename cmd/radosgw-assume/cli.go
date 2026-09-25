@@ -75,7 +75,7 @@ func (r *cliRunner) runContext(ctx context.Context, program string, args []strin
 		return exitCode
 	}
 	if options.action == actionRun && r.stdoutIsTerminal && !options.showCredentials {
-		fprintTerminalExportRefusal(r.stderr, program, args)
+		fprintTerminalExportNotice(r.stderr, program, args)
 		return 1
 	}
 	if options.action == actionRun && options.profileName == "" && !options.useEnv && r.deferInteractiveExport {
@@ -129,10 +129,10 @@ func fprintForegroundExport(w io.Writer, program string, args []string) {
 	_, _ = fmt.Fprintf(w, "eval \"$(%s=1 %s)\"\n", foregroundExportEnvironment, shellCommand(program, args))
 }
 
-func fprintTerminalExportRefusal(w io.Writer, program string, args []string) {
+func fprintTerminalExportNotice(w io.Writer, program string, args []string) {
 	command := shellCommand(program, args)
-	_, _ = fmt.Fprintln(w, "Error: refusing to print temporary credentials to a terminal")
-	_, _ = fmt.Fprintln(w, "To deliberately display them, add --show-credentials.")
+	_, _ = fmt.Fprintln(w, "Credential export skipped to avoid displaying temporary credentials in the terminal.")
+	_, _ = fmt.Fprintln(w, "To display them anyway, add --show-credentials.")
 	_, _ = fmt.Fprintln(w, "Export them into the current shell with either:")
 	_, _ = fmt.Fprintf(w, "  eval \"$(%s)\"\n", command)
 	_, _ = fmt.Fprintf(w, "  source <(%s)\n", command)
