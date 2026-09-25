@@ -71,7 +71,7 @@ func TestFprintUsageRequiresProfileFlag(t *testing.T) {
 		"source <(radosgw-assume)",
 		"radosgw-assume --show-credentials -p myprofile",
 		"radosgw-assume --show-credentials --env",
-		"Credential exports are refused when stdout is a terminal",
+		"Direct terminal credential exports are skipped",
 	} {
 		if !strings.Contains(output.String(), want) {
 			t.Errorf("FprintUsage() output missing %q", want)
