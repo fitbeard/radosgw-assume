@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.2](https://github.com/fitbeard/radosgw-assume/compare/v2.0.1...v2.0.2) (2026-09-25)
+
+
+### Bug Fixes
+
+* soften terminal credential export notice ([#120](https://github.com/fitbeard/radosgw-assume/issues/120)) ([cdd477d](https://github.com/fitbeard/radosgw-assume/commit/cdd477d75566dd7dc6394ea52dec37a1177c366e))
+
+
+### Miscellaneous
+
+* **deps:** Bump the aws-sdk group with 2 updates ([#119](https://github.com/fitbeard/radosgw-assume/issues/119)) ([2c0ba9e](https://github.com/fitbeard/radosgw-assume/commit/2c0ba9e7478d5cd03a983e8e5d5861a78866f76b))
+
 ## [2.0.1](https://github.com/fitbeard/radosgw-assume/compare/v2.0.0...v2.0.1) (2026-09-15)
 
 
