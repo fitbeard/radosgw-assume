@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.0.4](https://github.com/fitbeard/radosgw-assume/compare/v2.0.3...v2.0.4) (2026-11-02)
+
+
+### Bug Fixes
+
+* emit postflight_steps in the Homebrew cask ([#131](https://github.com/fitbeard/radosgw-assume/issues/131)) ([b7bb704](https://github.com/fitbeard/radosgw-assume/commit/b7bb704f94a697f4cbfceefc1e28435188be99fc))
+
+
+### Miscellaneous
+
+* **deps:** Bump github.com/aws/smithy-go from 1.28.5 to 1.28.7 ([#130](https://github.com/fitbeard/radosgw-assume/issues/130)) ([765f4e0](https://github.com/fitbeard/radosgw-assume/commit/765f4e03c964b7f4f4e340e714a54d270e87b32f))
+* **deps:** Bump the aws-sdk group with 2 updates ([#128](https://github.com/fitbeard/radosgw-assume/issues/128)) ([bd6c109](https://github.com/fitbeard/radosgw-assume/commit/bd6c10994dc6c515ce8af3414cd22b9cf5e9720c))
+
 ## [2.0.3](https://github.com/fitbeard/radosgw-assume/compare/v2.0.2...v2.0.3) (2026-10-22)
 
 
