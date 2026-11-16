@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.0.5](https://github.com/fitbeard/radosgw-assume/compare/v2.0.4...v2.0.5) (2026-11-16)
+
+
+### Miscellaneous
+
+* **deps:** Bump charm.land/lipgloss/v2 from 2.0.6 to 2.1.0 ([#136](https://github.com/fitbeard/radosgw-assume/issues/136)) ([e629e33](https://github.com/fitbeard/radosgw-assume/commit/e629e335260f61e41323a095b3d654440eb87ab8))
+* **deps:** Bump golang.org/x/sys from 0.49.0 to 0.50.0 ([#137](https://github.com/fitbeard/radosgw-assume/issues/137)) ([c6d59c6](https://github.com/fitbeard/radosgw-assume/commit/c6d59c6af8e2e8d594f31370e27b25664477f497))
+* **deps:** Bump gopkg.in/ini.v1 from 1.67.3 to 1.68.0 ([#138](https://github.com/fitbeard/radosgw-assume/issues/138)) ([6c1cde4](https://github.com/fitbeard/radosgw-assume/commit/6c1cde44c9259a87652d83f96cf2675282b5f7fd))
+* **deps:** Bump the aws-sdk group across 1 directory with 2 updates ([#133](https://github.com/fitbeard/radosgw-assume/issues/133)) ([2588c13](https://github.com/fitbeard/radosgw-assume/commit/2588c1387e35cad77805c86190ac4c1af7fe3b81))
+
 ## [2.0.4](https://github.com/fitbeard/radosgw-assume/compare/v2.0.3...v2.0.4) (2026-11-02)
 
 
