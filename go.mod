@@ -10,7 +10,7 @@ require (
 	github.com/aws/smithy-go v1.28.7
 	github.com/charmbracelet/x/term v0.2.2
 	golang.org/x/sys v0.49.0
-	gopkg.in/ini.v1 v1.67.3
+	gopkg.in/ini.v1 v1.68.0
 )
 
 require (
